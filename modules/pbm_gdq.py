@@ -1,24 +1,27 @@
 # GDQ
 
 from util import Mapping, argumentSplit
-from urllib2 import build_opener
+from urllib2 import build_opener, HTTPError
 from lxml.html import parse
 from json import load
 from time import gmtime, strptime
 from calendar import timegm # silly python... I just want UTC seconds
 from util import Timers, TimerExists
+from re import compile as re_compile
+
 
 OPTIONS = {
 	"TWITCH_CLIENTID" : (unicode, "Client ID for use in Twitch API calls.", u""),
 }
 
-GDQ_URL = "https://gamesdonequick.com/schedule"
+GDQ_URL = "https://gamesdonequick.com"
 TWITCH_API_URL = "https://api.twitch.tv/kraken/channels/gamesdonequick"
 RPL = "Current: \x02%s\x02 (%s) Upcoming: {0} \x0f| %s %s"
 TWITCH_CLIENTID = None
 TIMER_NAME = 'gdq_timer'
 LOOP_INTERVAL = 120.0 # Seconds
 REPEAT_NOTIFY_TIME = 60*30 # 30mins between same game notifies
+R_SCHEDULE_SUBLINK = re_compile(r'href="?(/?schedule/[^"]+)')
 
 FORMAT = u"{0}, GAME ({1}) IS AVAILABLE."
 
@@ -85,7 +88,15 @@ def gdq(event, bot):
 		ngame = game.lower()
 		o = build_opener()
 		o.addheaders = [('User-agent', 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36')]
-		f = o.open(GDQ_URL)
+		# GDQ recently added subpages for schedules in the form of /schedule/##
+		# Quick and dirty regex to check for and grab the first mentioned subpage, which is assumed to be the latest GDQ event
+		schedule_url = GDQ_URL + '/schedule'
+		f = o.open(schedule_url)
+		raw_content = f.read()
+		match = R_SCHEDULE_SUBLINK.search(raw_content)
+		if match:
+			schedule_url = GDQ_URL + match.group(1)
+		f = o.open(schedule_url)
 		# http://stackoverflow.com/a/9920703
 		page = parse(f)
 		rows = page.xpath("body/div//table/tbody")[0].findall("tr")
@@ -121,7 +132,14 @@ def check_games_callback(bot=None):
 
 	o = build_opener()
 	o.addheaders = [('Client-ID', TWITCH_CLIENTID)]
-	f = o.open(TWITCH_API_URL)
+	try:
+		f = o.open(TWITCH_API_URL)
+	except HTTPError as err:
+		if err.code == 410:
+			print("Request to '%r' received reply 'HTTP 410 - Gone'. \
+				This is typically a temporary failure." % TWITCH_API_URL)
+		else:
+			raise err
 	game = "Don't know"
 	if f.getcode() == 200:
 		data = load(f)
