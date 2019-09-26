@@ -171,7 +171,8 @@ def init(bot):
 
 	bot.dbCheckCreateTable("gdq_alert_idx", '''CREATE INDEX gdq_alert_idx ON gdq_alert(notified_time);''')
 	bot.dbCheckCreateTable("gdq_alert2_idx", '''CREATE INDEX gdq_alert2_idx ON gdq_alert(source, source_name, game_text);''')
-	setup_timer(bot.container)
+	# don't do this atm because twitch API change?
+	#setup_timer(bot.container)
 	return True
 
 mappings = (Mapping(command=("gdq", "agdq", "sgdq"), function=gdq),)
