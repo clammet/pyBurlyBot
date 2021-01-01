@@ -10,6 +10,9 @@ logindex/
 #cert dir
 cert/
 
+#linux specific
+.bashrc
+
 #testing
 modules/pbm_test.py
 modules/pbm_dispatchtest.py
