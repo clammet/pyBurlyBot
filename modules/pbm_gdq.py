@@ -154,7 +154,8 @@ def setup_timer(bot):
 	Timers.addtimer(TIMER_NAME, LOOP_INTERVAL, check_games_callback, reps=-1, startnow=False, bot=bot)
 
 def unload():
-	Timers.deltimer(TIMER_NAME)
+	#Timers.deltimer(TIMER_NAME)
+	pass
 
 def init(bot):
 	global TWITCH_CLIENTID # oh nooooooooooooooooo
