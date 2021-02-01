@@ -298,7 +298,7 @@ def alias(event, bot):
 		if not source: 
 			# ATTEMPT GROUP
 			if aliasgroup(bot, arg1, arg2) is False:
-				return bot.say("(%s) is not a group or a user I know." % arg1)
+				return bot.say("(%s) is not a group or a user I know. Try '.alias <existing_name> <new_alias>'" % arg1)
 			else: 
 				return
 		# else continue with normal user
