@@ -53,7 +53,7 @@ def urbandictionary(event, bot):
 	if not event.argument:
 		json_obj = jsonload(urlopen(RANDOM_URL))
 	else:
-		json_obj = jsonload(urlopen(API_URL + urlquote(event.argument)))
+		json_obj = jsonload(urlopen(API_URL + urlquote(event.argument.encode('utf8'))))
 		if not json_obj['list']:
 			return bot.say("No definition found for '%s'." % bold(event.argument))
 
