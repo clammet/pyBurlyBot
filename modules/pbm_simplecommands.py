@@ -10,7 +10,7 @@ from twisted.internet.threads import blockingCallFromThread
 ###
 
 from functools import partial
-from util import Mapping, argumentSplit, functionHelp
+from util import Mapping, argumentSplit, functionHelp, pastehelper
 from json import loads, dumps
 
 OPTIONS = {
@@ -45,7 +45,7 @@ def simplecommands(event, bot):
 				cmdlist.append('(%s)' % ', '.join(command))
 			else:
 				cmdlist.extend(command)
-		return bot.say('Simplecommands: %s' % ', '.join(cmdlist))
+		return pastehelper(bot, 'Simplecommands: %s', items=cmdlist, title='Simplecommands')
 	elif arg1 == '~del' and arg2:
 		match = None
 		temp_match = None
