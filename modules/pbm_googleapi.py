@@ -39,7 +39,7 @@ def google(query, num_results=1):
 		if spelling: spelling = spelling["correctedQuery"]
 		if "items" in gdata:
 			for item in gdata["items"]:
-				snippet = item["snippet"].replace(" \n", " ")
+				snippet = item["snippet"].replace(" \n", " ") if "snippet" in item else ""
 				results.append((item["title"], snippet, item["link"]))
 		return (spelling, results)
 	else:
