@@ -28,7 +28,7 @@ RPLREMINDFORMAT = u"%s: I will remind %s about that %s.%s%s"
 REMINDFORMAT = u"{0}, reminder from {1}: {2} - set {3}, arrived {4}."
 SELFREMINDFORMAT = u"{0}, reminder: {1} - set {2}, arrived {3}."
 
-MAX_REMIND_TIME = 31540000 # 1 year
+MAX_REMIND_TIME = 157700000 # 5 year
 
 
 def _gatherGroupUsers(qfunc, s):
