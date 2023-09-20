@@ -142,7 +142,7 @@ def group(event, bot):
 				nick = USERS_MODULE.get_username(bot, arg3, source=event.nick, _inalias=True)
 				if not nick:
 					return bot.say("User/alias (%s) not found." % arg3)
-				if group_check(group, nick):
+				if group_check(bot.dbQuery, group, nick):
 					bot.dbQuery('''DELETE FROM aliasgrp WHERE grp = ? AND user = ?;''', (group, nick))
 					return bot.say("Removed (%s) from (%s)" % (nick, group))
 				else:
