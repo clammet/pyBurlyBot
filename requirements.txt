@@ -25,7 +25,7 @@ requests==2.32.2
 service-identity==18.1.0
 six==1.12.0
 soupsieve==1.9.1
-Twisted==22.10.0
+Twisted==24.7.0
 urllib3==1.26.5
 wikipedia==1.4.0
 zope.interface==4.6.0
