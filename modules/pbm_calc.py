@@ -13,7 +13,7 @@ OPTIONS = {
 }
 
 API_KEY = None
-URL = "http://api.wolframalpha.com/v2/query?%s"
+URL = "https://api.wolframalpha.com/v2/query?%s"
 
 EXCLUDE_PODS = ("QuadraticResiduesModuloInteger", 'Property', 'ResiduesModuloSmallIntegers',
 	'BaseConversions', 'NSidedPolygon', 'NumberLine','Continued fraction', 'ConversionFromOtherUnits', 
