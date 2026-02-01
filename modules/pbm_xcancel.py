@@ -1,3 +1,6 @@
+from re import compile as recompile
+from util import Mapping
+
 def remove_elon(event, bot):
 	match = event.regex_match
 	posturlportion = match.group(1)
