@@ -1,3 +1,5 @@
+from types import ModuleType
+from typing import Any, cast
 from twisted.internet.threads import deferToThread
 
 from traceback import format_exc
@@ -5,22 +7,26 @@ from operator import attrgetter
 from functools import partial
 
 from .wrapper import BotWrapper
-from .container import SetupContainer
+from .container import Container, SetupContainer, WaitData
 from .helpers import commandSplit, coerceToUnicode
 from .event import Event
 from .moduleloader import ModuleLoadError
+from .moduleloader import ModuleRegistry
+from .mapping import Mapping, MappingFunction
+from .types import BotLike
 
 
 class Dispatcher:
 
-	def __init__(self, settings, registry):
-		self.waitmap = {}
+	def __init__(self, settings: Any, registry: ModuleRegistry) -> None:
+		self.waitmap: dict[str | None, set[WaitData]] = {}
+		self.eventmap: dict[str, dict[str, Any]] = {}
 		self.settings = settings
 		self.registry = registry
 		self.serverlabel = settings.serverlabel
 		self.debug = settings.debug
 
-	def reload(self):
+	def reload(self) -> None:
 		self.registry.clear_server(self.serverlabel)
 		self.eventmap = {}
 		# don't clear waitmap on reload to allow for still waiting functions to pass
@@ -37,17 +43,17 @@ class Dispatcher:
 		self._build_event_map()
 
 	@property
-	def modules(self):
+	def modules(self) -> dict[str, ModuleType]:
 		return self.registry.active_modules(self.serverlabel)
 
-	def get_module(self, name):
+	def get_module(self, name: str) -> ModuleType | None:
 		return self.modules.get(name)
 
-	def is_module_loaded(self, name):
+	def is_module_loaded(self, name: str) -> bool:
 		return name in self.modules
 
 	@staticmethod
-	def _requirements(module):
+	def _requirements(module: ModuleType) -> tuple[str, ...]:
 		requirements = getattr(module, "REQUIRES", ())
 		if requirements is None:
 			return ()
@@ -55,7 +61,9 @@ class Dispatcher:
 			return (requirements,)
 		return tuple(requirements)
 
-	def _load_requirements(self, module, parents):
+	def _load_requirements(
+		self, module: ModuleType, parents: tuple[str, ...]
+	) -> tuple[set[str], set[str]]:
 		notallowed = set()
 		failed = set()
 		for requirement in self._requirements(module):
@@ -68,7 +76,7 @@ class Dispatcher:
 				failed.add(requirement)
 		return notallowed, failed
 
-	def load_module(self, name, parents=()):
+	def load_module(self, name: str, parents: tuple[str, ...]=()) -> bool:
 		if name in self.modules:
 			return True
 		if name not in self.allowed_modules:
@@ -117,7 +125,7 @@ class Dispatcher:
 		print("Loaded %s." % name)
 		return True
 
-	def _configure_module(self, name, module):
+	def _configure_module(self, name: str, module: ModuleType) -> None:
 		for option, params in getattr(module, "OPTIONS", {}).items():
 			if len(params) != 3:
 				raise ModuleLoadError("Invalid OPTIONS entry %r; expected type, description, and default." % option)
@@ -125,17 +133,17 @@ class Dispatcher:
 				option, server=False, module=name, default=params[2], setDefault=True, inreactor=True
 			)
 
-	def _initialize_module(self, name, module):
+	def _initialize_module(self, name: str, module: ModuleType) -> None:
 		initialize = getattr(module, "init", None)
 		if initialize is not None and not initialize(SetupContainer(self.settings.container)):
 			raise ModuleLoadError("init() returned a false value.")
 
-	def _register_addons(self, name, module):
+	def _register_addons(self, name: str, module: ModuleType) -> None:
 		provided = {item: getattr(module, item) for item in getattr(module, "PROVIDES", ())}
 		for item, value in provided.items():
 			self.settings.addons._add(item, name, value)
 
-	def _build_event_map(self):
+	def _build_event_map(self) -> None:
 		for module in self.modules.values():
 			self._add_mappings(module)
 		for event_mappings in self.eventmap.values():
@@ -144,7 +152,7 @@ class Dispatcher:
 			for command_mappings in event_mappings["command"].values():
 				command_mappings.sort(key=attrgetter("priority"))
 
-	def _add_mappings(self, module):
+	def _add_mappings(self, module: ModuleType) -> None:
 		eventmap = self.eventmap
 		for mapping in getattr(module, "mappings", ()):
 			for etype in mapping.types:
@@ -170,13 +178,13 @@ class Dispatcher:
 				if mapping.regex:
 					event_mappings["regex"].append(mapping)
 	
-	def _getCommandMappings(self, cmd=None):
+	def _getCommandMappings(self, cmd: str | None=None) -> list[Mapping] | list[list[Mapping]]:
 		if cmd:
 			return self.eventmap.get("privmsged", {}).get("command", {}).get(cmd, [])
 		else:
 			return list(self.eventmap.get("privmsged", {}).get("command", {}).values())
 	
-	def dispatch(self, botinst, event_type, **eventkwargs):
+	def dispatch(self, botinst: Any, event_type: str, **eventkwargs: Any) -> bool:
 		settings = self.settings
 		cont_or_wrap = botinst.container
 		event = None
@@ -191,9 +199,11 @@ class Dispatcher:
 			#case insensitive command (see below)
 			#commands can't have spaces in them, and lol command prefix can't be a space
 			#if you want a case sensitive match you can do your command as a regex
-			command, argument = commandSplit(msg)
+			parsed_command, argument = commandSplit(msg)
+			if parsed_command is None:
+				return False
 			#support multiple character commandprefix
-			command = command[len(settings.commandprefix):]
+			command = parsed_command[len(settings.commandprefix):]
 			# Maintain case for event, for funny things like replying in all caps
 			eventkwargs["command"], eventkwargs["argument"] = (command, argument)
 			command = command.lower()
@@ -211,7 +221,7 @@ class Dispatcher:
 				if mapping.priority == 0: break #lol cheap and easy way to support total override
 			#super fast command dispatching now... Only thing left that's slow is the regex but has to be
 			for mapping in eventmap[l_event_type]["command"].get(command,()):
-				if mapping.admin and (event.nick.lower() not in settings.admins):
+				if mapping.admin and (event.nick is None or event.nick.lower() not in settings.admins):
 					# TODO: Do we bot.say("access denied") ?
 					continue
 				self._dispatchreally(mapping.function, event, cont_or_wrap, self.debug)
@@ -220,6 +230,8 @@ class Dispatcher:
 			# TODO: Consider this:
 			# super priority==0 override doesn't really make much sense on a regex, but whatever
 			for mapping in eventmap[l_event_type]["regex"]:
+				if msg is None:
+					continue
 				result = mapping.regex.search(msg)
 				if result:
 					event.regex_match = result
@@ -250,27 +262,31 @@ class Dispatcher:
 		return dispatched
 		
 	@staticmethod
-	def createEventAndWrap(cont_or_wrap, eventtype, eventkwargs):
+	def createEventAndWrap(
+		cont_or_wrap: Container | BotWrapper, eventtype: str, eventkwargs: dict[str, Any]
+	) -> tuple[Event, Container | BotWrapper]:
 		event = Event(eventtype, **eventkwargs)
 		if event.target or event.nick:
-			return event, BotWrapper(event, cont_or_wrap)
+			return event, BotWrapper(event, cast(Container, cont_or_wrap))
 		else:
 			return event, cont_or_wrap
 	
 	@staticmethod					
-	def _dispatchreally(func, event, cont_or_wrap, debug):
+	def _dispatchreally(
+		func: MappingFunction, event: Event, cont_or_wrap: Container | BotWrapper, debug: int
+	) -> None:
 		if debug >= 2: print("DISPATCHING TO: %r" % func)
-		d = deferToThread(func, event, cont_or_wrap)
+		d = deferToThread(func, event, cast(BotLike, cont_or_wrap))
 		#add errback
 		d.addErrback(cont_or_wrap._moduleerr)
 
-	def addWaitData(self, wd):
+	def addWaitData(self, wd: WaitData) -> None:
 		for ietype in wd.interestede:
 			self.waitmap.setdefault(ietype, set()).add(wd)
 		for setype in wd.stope:
 			self.waitmap.setdefault(setype, set()).add(wd)
 
-	def delWaitData(self, wd):
+	def delWaitData(self, wd: WaitData) -> None:
 		for wdtype in (wd.interestede, wd.stope):
 			for etype in wdtype:
 				wdset = self.waitmap.get(etype)

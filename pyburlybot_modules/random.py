@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 # random module
 from random import choice, randint, random
 
@@ -6,7 +8,7 @@ from util import Mapping, functionHelp, argumentSplit
 COIN = ("heads", "tails")
 
 
-def do_flip(event, bot):
+def do_flip(event: Event, bot: BotLike) -> None:
 	""" coinflip. choice flip will return randomly "heads" or "tails"."""
 	if random() > 0.999:
 		bot.say('The coin landed on its side.')
@@ -14,20 +16,23 @@ def do_flip(event, bot):
 		bot.say("%s" % choice(COIN))
 
 
-def do_choice(event, bot):
+def do_choice(event: Event, bot: BotLike) -> None:
 	""" choice [value...]. choice will randomly select one of the given values,
 	or if only one value a random character from the given value."""
 	if not event.argument: return bot.say(functionHelp(do_choice))
 	values = argumentSplit(event.argument, -1)
 	if len(values) == 1:
-		values = values[0]
+		value = values[0]
+		if value is None:
+			return bot.say(functionHelp(do_choice))
+		return bot.say("%s" % choice(value))
 	elif len(set(values)) == 1:
 		# Only duplicate values
 		return bot.say("%s, obviously." % values[0])
 	return bot.say("%s" % choice(values))
 
 
-def do_rand(event, bot):
+def do_rand(event: Event, bot: BotLike) -> None:
 	""" rand [arg]. If no arg rand will generate random int between 0-10. If arg is an integer
 	value a random int between 0-arg will be generated. arg can also be a list of items, in which case will act like choice."""
 	if not event.argument:

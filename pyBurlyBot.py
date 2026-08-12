@@ -1,3 +1,6 @@
+from typing import IO
+from types import FrameType
+from typing import Any
 #pyBurlyBot
 
 from os import name
@@ -10,21 +13,23 @@ import signal
 
 # twisted imports
 from twisted.python import log
-from twisted.internet import reactor
+from twisted.internet import reactor as _reactor
 
 #BurlyBot imports
 from util.settings import Settings, ConfigException
 
+reactor: Any = _reactor
 
-def start_logging(output):
+
+def start_logging(output: IO[str]) -> Any:
 	"""Start Twisted logging without replacing multiprocessing-safe stdio."""
 	return log.startLogging(output, setStdout=False)
 
-def setup_sighup_handler():
+def setup_sighup_handler() -> None:
 	"""
 	Handle SIGHUP, received by screen children when screen receives SIGTERM
 	"""
-	def sighup_handler(*args):
+	def sighup_handler(signum: int, frame: FrameType | None) -> None:
 		reactor.callFromThread(reactor.stop)
 
 	signal.signal(signal.SIGHUP, sighup_handler)

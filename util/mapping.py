@@ -1,11 +1,23 @@
-def dummyfunc(event, botwrap):
+from collections.abc import Callable, Sequence
+from re import Pattern
+from typing import Any
+
+from .event import Event
+from .types import BotLike
+
+MappingFunction = Callable[[Event, BotLike], Any]
+
+
+def dummyfunc(event: Event, botwrap: BotLike) -> None:
 	pass
 
 #TODO: Should this be called "hook"? (with the variable name in modules called "hooks")
 #	"hooks" seems kind of "low level" though...
 class Mapping:
-	def __init__(self, types=None, command=None, regex=None, function=dummyfunc,
-				priority=10, override=False, admin=False, hidden=False):
+	def __init__(self, types: Sequence[str] | None=None,
+				command: str | Sequence[str] | None=None, regex: Pattern[str] | None=None,
+				function: MappingFunction=dummyfunc, priority: int=10,
+				override: bool=False, admin: bool=False, hidden: bool=False) -> None:
 		""" Mapping object to map module functions to IRC events.
 		Mapping takes the following arguments:
 		type = [list of strings], 
@@ -23,8 +35,8 @@ class Mapping:
 			If False behave normally with regards to listing
 		"""
 		assert(types is None or isinstance(types, list) or isinstance(types, tuple))
-		if not types: self.types = []
-		else: self.types = types
+		if not types: self.types: list[str] = []
+		else: self.types = list(types)
 
 		assert(command is None or isinstance(command, (list, tuple, str)))
 		if command:
@@ -32,7 +44,7 @@ class Mapping:
 				command = [command]
 			if not self.types:
 				self.types = ["privmsged"]
-		self.command = command
+		self.command: list[str] | None = list(command) if command else None
 		self.regex = regex
 		self.function = function
 		self.priority = priority
@@ -40,6 +52,6 @@ class Mapping:
 		self.admin = admin
 		self.hidden = hidden
 		
-	def __repr__(self):
+	def __repr__(self) -> str:
 		return "Mapping(id()=%X, types=%r, command=%r, regex=%r, function=%r, priority=%r, admin=%r)" % \
 				(id(self), self.types, self.command, self.regex, self.function, self.priority, self.admin)

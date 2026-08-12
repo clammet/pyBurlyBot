@@ -1,3 +1,6 @@
+from typing import Any
+from util.event import Event
+from util.types import BotLike
 # urbandictionary module
 
 from util import Mapping
@@ -16,7 +19,7 @@ RANDOM_URL = 'http://api.urbandictionary.com/v0/random'
 R_SQUAREBRACKETS = re_compile(r'\[([a-zA-Z0-9.\'"!@#$%^&*()+=\\/\|\-_;:<>{} ]*?)\]')
 
 
-def format_definition(json_obj):
+def format_definition(json_obj: dict[str, Any]) -> str:
 	""" Format an API-provided JSON object for display"""
 	word = json_obj['word']
 	definition = dedent(json_obj['definition']).replace('\r\n', ' ')
@@ -48,7 +51,7 @@ def format_definition(json_obj):
 	return '%s (%s)' % (s, permalink)
 
 
-def urbandictionary(event, bot):
+def urbandictionary(event: Event, bot: BotLike) -> None:
 	""" urbandictionary [TERM]. Searches Urban Dictionary for TERM if supplied.
 	Otherwise a random definition will be displayed."""
 	if not event.argument:

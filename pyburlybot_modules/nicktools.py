@@ -1,3 +1,6 @@
+from collections.abc import Callable, Iterable
+from util.event import Event
+from util.types import BotLike
 # nicktools
 
 # Handles identifying to nickserv (when not using client certificate fingerprints)
@@ -20,7 +23,8 @@ OPTIONS = {
 	"checkevery" : (int, "Time in seconds to check if we are using our nickname", 90),
 }
 
-def nickCheckAndRecover(event=None, bot=None):
+def nickCheckAndRecover(event: Event | None=None, bot: BotLike | None=None) -> None:
+	assert bot is not None
 	snick = bot.getOption("nick")
 	snickpass = bot.getOption("nickservpass")
 	srestorenick = bot.getOption("restorenick", module="nicktools")
@@ -38,11 +42,12 @@ def nickCheckAndRecover(event=None, bot=None):
 		else:
 			bot.setNick(snick)
 
-def delayedJoin(joinfunc, channels):
+def delayedJoin(joinfunc: Callable[..., None],
+	channels: Iterable[tuple[str, ...]]) -> None:
 	for chan in channels:
 		joinfunc(*chan)
 
-def identify(bot, snick=None):
+def identify(bot: BotLike, snick: str | None=None) -> bool:
 	passwd = bot.getOption("nickservpass")
 	if not snick: snick = bot.getOption("nick")
 	if bot.nickname == snick and passwd:
@@ -54,7 +59,7 @@ def identify(bot, snick=None):
 		return True
 	return False
 
-def preJoin(event, bot):
+def preJoin(event: Event, bot: BotLike) -> None:
 	if identify(bot):
 		# if identified on connect, join sooner
 		reactor.callFromThread(reactor.callLater, 1.5, delayedJoin, bot._botinst.join, bot.getOption("channels"))
@@ -62,7 +67,7 @@ def preJoin(event, bot):
 		# if not identified on connect, join sometime after nick reclaim hopefully happens
 		reactor.callFromThread(reactor.callLater, 5.5, delayedJoin, bot._botinst.join, bot.getOption("channels"))
 
-def nickChanged(event, bot):
+def nickChanged(event: Event, bot: BotLike) -> None:
 	if bot.getOption("restorenick", module="nicktools"):
 		snick = bot.getOption("nick")
 		if event.newname != snick:
@@ -77,10 +82,10 @@ def nickChanged(event, bot):
 			# TODO: like below, when state can track +r, this should be checked before attempting identify
 			identify(bot, snick)
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	return True
 	
-def unload():
+def unload() -> None:
 	Timers._delPrefix("NICKTOOLS_") # use non blocking call version since unload is called in the reactor
 				
 mappings = (Mapping(types=["preJoin"], function=preJoin), Mapping(types=["signedOn"], function=nickCheckAndRecover),

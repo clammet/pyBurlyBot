@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 # module for simple displaying of text on command
 # configurable from moduleoptions
 
@@ -19,13 +21,13 @@ OPTIONS = {
 
 
 # TODO: Was lazy, can't remember cross-module trickiness
-def _reallyReload():
+def _reallyReload() -> None:
 	Settings.reloadStage1()
 	Settings.reloadStage2()
 
 
 # TODO: Move to database
-def simplecommands(event, bot):
+def simplecommands(event: Event, bot: BotLike) -> None:
 	""" simplecommands [(~del, ~list)] input[,alias1,alias2,...] output.  Simple interface for adding/removing simplecommands.
 	If only input is supplied, output is retrieved.  If ~del is specified, input is deleted if found.
 	e.g. .simplecommands google google.com
@@ -118,14 +120,14 @@ def simplecommands(event, bot):
 		bot.say('Simplecommand (%s): %s' % (', '.join(match[0]), match[1]))
 
 
-def echo_this(text, event, bot):
+def echo_this(text: str, event: Event, bot: BotLike) -> None:
 	bot.say(text)
 
 # for abuse in init:
 mappings = [Mapping(command=("simplecommands", "simplecommand", "sc"), function=simplecommands)]
 
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global mappings # oops! Bad things are going to happen
 	# you should very much not do the following. This relies on knowing how the internals of dispatcher setup work!
 	for command, output in bot.getOption("commands", module="simplecommands"):

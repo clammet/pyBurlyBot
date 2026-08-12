@@ -1,3 +1,4 @@
+from typing import Any
 from urllib.request import urlopen
 from urllib.error import URLError
 from urllib.parse import urlencode
@@ -8,7 +9,8 @@ PROVIDES = ("paste",)
 
 APIURL = "http://dpaste.com/api/v2/"
 
-def paste(s, syntax="text", title="BurlyBot paste", poster="BurlyBot", expiry_days=1, **kwargs):
+def paste(s: str, syntax: str="text", title: str="BurlyBot paste",
+	poster: str="BurlyBot", expiry_days: int=1, **kwargs: Any) -> str | None:
 	data = {
 		"title" : title,
 		"syntax" : syntax,

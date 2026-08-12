@@ -1,3 +1,5 @@
+from typing import Any
+from util.types import BotLike
 from urllib.request import urlopen
 from urllib.error import URLError
 from urllib.parse import urlencode, quote
@@ -18,7 +20,7 @@ YOUTUBE_INFO_URL = "https://www.googleapis.com/youtube/v3/videos?%s"
 API_KEY = None
 CSE_ID = None
 
-def google(query, num_results=1):
+def google(query: str, num_results: int=1) -> tuple[str | None, list[tuple[str, str, str]]]:
 	""" google helper. Will return Google search results using the provided query up to num_results results."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
@@ -39,7 +41,7 @@ def google(query, num_results=1):
 	else:
 		raise RuntimeError("Error: %s" % (gdata.replace("\n", " ")))
 
-def google_image(query, num_results):
+def google_image(query: str, num_results: int) -> tuple[str | None, list[tuple[str, str]]]:
 	""" google image search helper. Will return Google images using the provided query up to num_results results."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
@@ -59,7 +61,8 @@ def google_image(query, num_results):
 	else:
 		raise RuntimeError("Error: %s" % (gdata.replace("\n", " ")))
 		
-def google_timezone(lat, lon, t):
+def google_timezone(lat: float | str, lon: float | str,
+	t: int | float) -> tuple[str, str, int, int]:
 	""" helper to ask google for timezone information about a location."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
@@ -75,7 +78,7 @@ def google_timezone(lat, lon, t):
 	else:
 		raise RuntimeError("Error (%s): %s" % (f.getcode(), gdata.replace("\n", " ")))
 		
-def google_geocode(query):
+def google_geocode(query: str) -> tuple[str, float, float] | None:
 	""" helper to ask google for location data. Returns name, lat, lon"""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
@@ -96,7 +99,8 @@ def google_geocode(query):
 	else:
 		raise RuntimeError("Error (%s): %s" % (f.getcode(), locdata.replace("\n", " ")))
 		
-def google_youtube_search(query, relatedTo=None):
+def google_youtube_search(query: str,
+	relatedTo: str | None=None) -> tuple[int | None, list[dict[str, Any]]]:
 	""" helper to ask google for youtube search. returns numresults, results[(title, url)]"""
 	# TODO: make module option for safesearch
 	if not API_KEY:
@@ -119,7 +123,7 @@ def google_youtube_search(query, relatedTo=None):
 	else:
 		raise RuntimeError("Error (%s): %s" % (f.getcode(), ytdata.replace("\n", " ")))
 
-def google_youtube_check(id):
+def google_youtube_check(id: str) -> bool:
 	""" helper to ask google if youtube ID is valid."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
@@ -131,7 +135,7 @@ def google_youtube_check(id):
 		return False
 	return True
 		
-def google_youtube_details(vidid):
+def google_youtube_details(vidid: str) -> dict[str, Any] | None:
 	""" helper to ask google for youtube video details."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
@@ -149,7 +153,7 @@ def google_youtube_details(vidid):
 	else:
 		raise RuntimeError("Error (%s): %s" % (f.getcode(), ytdata.replace("\n", " ")))
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global API_KEY # oh nooooooooooooooooo
 	global CSE_ID # oh nooooooooooooooooo
 	API_KEY = bot.getOption("API_KEY", module="googleapi")

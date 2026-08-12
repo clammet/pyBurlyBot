@@ -1,3 +1,6 @@
+from typing import Any
+from util.event import Event
+from util.types import BotLike
 # time module
 
 from util import Mapping, pastehelper
@@ -6,11 +9,12 @@ from calendar import timegm # silly python... I just want UTC seconds
 
 # You could do this without web based service but whatever, offloading is easier. Cloud7.0
 REQUIRES = ("location", "googleapi", "users")
-LOC_MODULE = None
-GAPI_MODULE = None
-USERS_MODULE = None
+LOC_MODULE: Any = None
+GAPI_MODULE: Any = None
+USERS_MODULE: Any = None
 
-def _processTime(bot, loc, group=False):
+def _processTime(bot: BotLike, loc: tuple[str, float | str, float | str],
+	group: bool=False) -> tuple[int, str, tuple[str, str, int, int]] | None:
 	name, lat, lon = loc
 	t = timegm(gmtime())
 	tz = GAPI_MODULE.google_timezone(lat, lon, t)
@@ -21,7 +25,7 @@ def _processTime(bot, loc, group=False):
 	#TODO: what time format??
 	return t, name, tz
 	
-def ttime(event, bot):
+def ttime(event: Event, bot: BotLike) -> None:
 	# attempt group first (because it's easier with current location module weirdness 
 	# (getLocationWithError needs rewrite with friendlier API)
 	if bot.isModuleAvailable("alias"):
@@ -61,7 +65,7 @@ def ttime(event, bot):
 		t, name, tz = tdata
 		bot.say("%s - %s (%s-%s)" % (strftime("%c", gmtime(t)), name, tz[0], tz[1]))
 		
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global LOC_MODULE # oh nooooooooooooooooo
 	global GAPI_MODULE # oh nooooooooooooooooo
 	global USERS_MODULE # oh nooooooooooooooooo

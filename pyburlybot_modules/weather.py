@@ -1,3 +1,6 @@
+from typing import Any
+from util.event import Event
+from util.types import BotLike
 # https://openweathermap.org
 # require APIkey module option
 
@@ -5,8 +8,8 @@ from util import Mapping, WDAY_SHORTMAP
 from time import gmtime, time
 
 REQUIRES = ("location", "openweathermap_api")
-OWNAPI_MODULE = None
-LOC_MODULE = None
+OWNAPI_MODULE: Any = None
+LOC_MODULE: Any = None
 MAX_OUTPUT_LEN = 350
 
 # Weather for Lansing, MI: 32.2F (0.1C), Wind Chill of 25F (-4C), Partly Cloudy, Humidity 67%, Wind from the East at 8.0mph (12.9km/h) 
@@ -20,16 +23,16 @@ FORECAST_RPL = "3 Hour Forecasts for %s: "
 FORECAST_DAY = "%s - %s \x02%.1fF\x02/\x02%.1fF\x02 (\x02%.1fC\x02/\x02%.1fC\x02) Hum: \x02%s%%\x02"
 FORECAST_DELIMITER = ' | '
 
-def c2f(temp_c):
+def c2f(temp_c: float) -> float:
 	return (temp_c * 1.8) + 32.0
 
-def f2c(temp_f):
+def f2c(temp_f: float) -> float:
 	return (temp_f - 32) * (5.0/9.0)
 
-def kph2mph(kph):
+def kph2mph(kph: float) -> float:
 	return kph / 1.6093440
 
-def degrees_to_cardinal(d, reverse=False):
+def degrees_to_cardinal(d: float, reverse: bool=False) -> str:
 	"""
 	This is an approximation
 	"""
@@ -41,7 +44,7 @@ def degrees_to_cardinal(d, reverse=False):
 	return dirs[ix % 16]
 
 
-def wind_chill(temp_c, wind_speed):
+def wind_chill(temp_c: float, wind_speed: float) -> float | None:
 	""" Compute wind chill given temperature and wind speed if the
 		temperature is 50 degrees Fahrenheit or less and the wind speed is
 		above 3 mph, otherwise return 'nan' (not-a-number) because it's an
@@ -58,11 +61,11 @@ def wind_chill(temp_c, wind_speed):
 	return None
 
 
-def _build_locname(place, cc):
+def _build_locname(place: str, cc: str) -> str:
 	return '%s, %s' % (place, cc)
 
 
-def weather(event, bot):
+def weather(event: Event, bot: BotLike) -> None:
 	""" weather [user/location]. If user/location is not provided, weather is displayed for the requesting nick.
 	Otherwise the weather for the requested user/location is displayed."""
 	loc = LOC_MODULE.getLocationWithError(bot, event.argument, event.nick)
@@ -96,7 +99,7 @@ def weather(event, bot):
 			c2f(temp_min_c), c2f(temp_max_c), temp_min_c, temp_max_c, simple_conditions, humidity, wind))
 
 
-def forecast(event, bot):
+def forecast(event: Event, bot: BotLike) -> None:
 	""" forecast [user/location]. If user/location is not provided, weather forecast information is displayed for the requesting nick.
 	Otherwise the weather forecast for the requested user/location is displayed."""
 	loc = LOC_MODULE.getLocationWithError(bot, event.argument, event.nick)
@@ -164,7 +167,7 @@ def forecast(event, bot):
 	return bot.say(output_str)
 
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global OWNAPI_MODULE # oh nooooooooooooooooo
 	global LOC_MODULE # oh nooooooooooooooooo
 	

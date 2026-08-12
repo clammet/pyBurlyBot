@@ -1,3 +1,4 @@
+from typing import Any
 from collections import deque
 from pathlib import Path
 import subprocess
@@ -14,7 +15,7 @@ from util.helpers import coerceToUnicode, splitEncodedUnicode
 
 
 class BurlyBotProtocolTest(TestCase):
-	def test_logging_allows_multiprocessing_to_start(self):
+	def test_logging_allows_multiprocessing_to_start(self) -> None:
 		script = (
 			"from multiprocessing import Process\n"
 			"from sys import stdout\n"
@@ -36,24 +37,24 @@ class BurlyBotProtocolTest(TestCase):
 
 		self.assertEqual(result.returncode, 0, result.stderr)
 
-	def make_protocol(self, encoding="utf-8"):
+	def make_protocol(self, encoding: Any="utf-8") -> Any:
 		protocol = BurlyBot()
 		protocol.settings = SimpleNamespace(encoding=encoding)
 		protocol.debug = 0
-		protocol.transport = StringTransport()
+		protocol.transport = StringTransport()  # type: ignore[assignment]
 		protocol._dqueue = deque()
 		protocol._lastmsg = 0
 		protocol._lines = 0
 		protocol._lastCL = None
 		return protocol
 
-	def test_send_line_encodes_text_and_uses_irc_line_ending(self):
+	def test_send_line_encodes_text_and_uses_irc_line_ending(self) -> None:
 		protocol = self.make_protocol()
 		protocol.sendLine("PRIVMSG #test :café")
 
 		self.assertEqual(protocol.transport.value(), b"PRIVMSG #test :caf\xc3\xa9\r\n")
 
-	def test_line_received_decodes_with_configured_encoding(self):
+	def test_line_received_decodes_with_configured_encoding(self) -> None:
 		protocol = self.make_protocol("latin-1")
 		received = []
 		protocol.handleCommand = lambda command, prefix, params: received.append(
@@ -67,7 +68,7 @@ class BurlyBotProtocolTest(TestCase):
 			[("PRIVMSG", "nick!ident@host", ["#test", "café"])],
 		)
 
-	def test_data_received_removes_carriage_return(self):
+	def test_data_received_removes_carriage_return(self) -> None:
 		protocol = self.make_protocol()
 		received = []
 		protocol.handleCommand = lambda command, prefix, params: received.append(params)
@@ -75,7 +76,7 @@ class BurlyBotProtocolTest(TestCase):
 
 		self.assertEqual(received, [["#test", "hello"]])
 
-	def test_unicode_helpers_keep_multibyte_characters_intact(self):
+	def test_unicode_helpers_keep_multibyte_characters_intact(self) -> None:
 		self.assertEqual(coerceToUnicode("caf\xe9".encode("latin-1")), "café")
 		self.assertEqual(
 			splitEncodedUnicode("a😀b", 5, n=2),
@@ -84,8 +85,8 @@ class BurlyBotProtocolTest(TestCase):
 
 
 class SteamChatTest(TestCase):
-	def make_container(self, command_map=None):
-		def get_option(option, **kwargs):
+	def make_container(self, command_map: Any=None) -> Any:
+		def get_option(option: Any, **kwargs: Any) -> str:
 			return "test-token"
 
 		return SimpleNamespace(
@@ -98,16 +99,16 @@ class SteamChatTest(TestCase):
 			),
 		)
 
-	def test_initialization_reads_oauth_through_container_api(self):
+	def test_initialization_reads_oauth_through_container_api(self) -> None:
 		calls = []
 
-		def get_option(option, **kwargs):
+		def get_option(option: Any, **kwargs: Any) -> str:
 			calls.append((option, kwargs))
 			return "test-token"
 
 		container = SimpleNamespace(network="test", getOption=get_option)
 		with patch("pyburlybot_modules.steamchat.reactor.callFromThread"):
-			steamchat = SteamChat(container, "!", [])
+			steamchat = SteamChat(container, "!", [])  # type: ignore[arg-type]
 
 		self.assertEqual(steamchat.oauth, "test-token")
 		self.assertEqual(
@@ -115,7 +116,7 @@ class SteamChatTest(TestCase):
 			[("oauthtoken", {"module": "steamchat", "inreactor": True})],
 		)
 
-	def test_command_map_keeps_only_allowed_module_mappings(self):
+	def test_command_map_keeps_only_allowed_module_mappings(self) -> None:
 		allowed = SimpleNamespace(function=SimpleNamespace(__module__="pyburlybot_modules.allowed"))
 		blocked = SimpleNamespace(function=SimpleNamespace(__module__="pyburlybot_modules.blocked"))
 		container = self.make_container(

@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+from typing import Any
 from re import compile as recompile, IGNORECASE, VERBOSE
 from .timer import Timers, TimerExists, TimerInvalidName, TimerNotFound
 from .container import TimeoutException
@@ -5,6 +7,7 @@ from .helpers import distance_of_time_in_words, processHostmask, commandSplit, a
 	commandlength, functionHelp, coerceToUnicode, parseDateTime, match_hostmask, WDAY_MAP, WDAY_SHORTMAP
 from .mapping import Mapping
 from .db import fetchone, fetchall, fetchmany
+from .types import BotLike, DatabaseParams, DatabaseQuery
 
 __all__ = (
 	"Timers", "TimerExists", "TimerInvalidName", "TimerNotFound",
@@ -12,11 +15,14 @@ __all__ = (
 	"commandSplit", "argumentSplit", "commandlength", "functionHelp",
 	"coerceToUnicode", "parseDateTime", "match_hostmask", "WDAY_MAP",
 	"WDAY_SHORTMAP", "Mapping", "fetchone", "fetchall", "fetchmany",
-	"pastehelper", "english_list", "URLREGEX",
+	"BotLike", "DatabaseParams", "DatabaseQuery", "pastehelper",
+	"english_list", "URLREGEX",
 )
 
 
-def pastehelper(bot, basemsg, items=None, altmsg=None, sep=(", ","\n"), force=False, **kwargs):
+def pastehelper(bot: BotLike, basemsg: str, items: Sequence[str] | None=None,
+	altmsg: str | None=None, sep: tuple[str, str]=(", ","\n"),
+	force: bool=False, **kwargs: Any) -> None:
 	"""If using items, altmsg is an alternate string to interpolate with the items list."""
 	try:
 		tmsg = basemsg
@@ -51,16 +57,15 @@ def pastehelper(bot, basemsg, items=None, altmsg=None, sep=(", ","\n"), force=Fa
 		raise
 
 
-def english_list(l):
+def english_list(l: str | Sequence[str]) -> str:
 	"""Stringify a list into 'arg1, arg2 and arg3', or 'arg1' if single-argument."""
-	if not isinstance(l, (list, tuple)):
-		l = (l, )
-	if len(l) > 2:
-		return "%s, and %s" % (", ".join(l[:-1]), l[-1])
-	elif len(l) == 2:
-		return "%s and %s" % (l[0], l[1])
+	values = (l,) if isinstance(l, str) else l
+	if len(values) > 2:
+		return "%s, and %s" % (", ".join(values[:-1]), values[-1])
+	elif len(values) == 2:
+		return "%s and %s" % (values[0], values[1])
 	else:
-		return l[0]
+		return values[0]
 
 URLREGEX = recompile(r"""
 \bhttps?\://					# schema

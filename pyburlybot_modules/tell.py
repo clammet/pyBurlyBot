@@ -1,5 +1,10 @@
+from collections.abc import Iterable
+from typing import Any
+from util.event import Event
+from util.types import BotLike, DatabaseQuery
+from util.db import Query
 #tell module
-from time import gmtime, localtime
+from time import gmtime, localtime, struct_time
 from calendar import timegm # silly python... I just want UTC seconds
 from collections import deque
 
@@ -9,7 +14,7 @@ from util.settings import ConfigException
 # to dive in to the reactor twice? per message
 # because of this I should do foreign key things but don't want to lock myself in to that just yet (bad@db)
 REQUIRES = ("users",)
-USERS_MODULE = None
+USERS_MODULE: Any = None
 
 #nick: <source> msg - time
 TELLFORMAT = "{0}: <{1}> {2} - {3}"
@@ -29,22 +34,22 @@ SELFREMINDFORMAT = "{0}, reminder: {1} - set {2}, arrived {3}."
 MAX_REMIND_TIME = 157700000 # 5 year
 
 
-def _gatherGroupUsers(qfunc, s):
-	users = []
+def _gatherGroupUsers(qfunc: DatabaseQuery, s: str) -> Iterable[tuple[str, str]]:
 	g = USERS_MODULE.ALIAS_MODULE.get_groupname(qfunc, s)
 	if g:
-		users = ((user, user) for user in USERS_MODULE.ALIAS_MODULE.group_list(qfunc, g))
-	return users
+		return [(user, user) for user in USERS_MODULE.ALIAS_MODULE.group_list(qfunc, g)]
+	return []
 
 
-def _generate_users(bot, s, nick, skipself=True):
+def _generate_users(bot: BotLike, s: str, nick: str,
+	skipself: bool=True) -> tuple[list[tuple[str, str]], list[str], bool, bool]:
 	alias = False
 	if bot.isModuleAvailable("alias"):
 		alias = True
-	uset = set()
+	uset: set[str] = set()
 	dupes = False
-	users = [] # user,called
-	unknown = []
+	users: list[tuple[str, str]] = [] # user,called
+	unknown: list[str] = []
 	targets = deque(s.split(","))
 	hasself = False
 	while targets:
@@ -92,7 +97,7 @@ def _generate_users(bot, s, nick, skipself=True):
 	return users, unknown, dupes, hasself
 
 
-def deliver_tell(event, bot):
+def deliver_tell(event: Event, bot: BotLike) -> None:
 	# if alias module available use it
 	user = None
 	if bot.isModuleAvailable("alias"):
@@ -113,7 +118,7 @@ def deliver_tell(event, bot):
 	)[0] # 0 gets the results from the first query only
 	if tells:
 		collate = False
-		lines = None
+		lines: list[str] | None = None
 		if len(tells) > 3: 
 			collate = True
 			lines = []
@@ -128,31 +133,37 @@ def deliver_tell(event, bot):
 					data = [event.nick, tell['msg'], distance_of_time_in_words(tell['origintime'], toldtime), 
 						distance_of_time_in_words(tell['telltime'], toldtime, suffix="late")]
 					fmt = SELFREMINDFORMAT
-				if collate: lines.append(fmt.format(*data))
+				if collate:
+					assert lines is not None
+					lines.append(fmt.format(*data))
 				else: bot.say(fmt, strins=data, fcfs=True)
 			else:
 				data = [event.nick, tell['source'], tell['msg'], distance_of_time_in_words(tell['telltime'], toldtime)]
-				if collate: lines.append(TELLFORMAT.format(*data))
+				if collate:
+					assert lines is not None
+					lines.append(TELLFORMAT.format(*data))
 				else: bot.say(TELLFORMAT, strins=data, fcfs=True)
 		if collate:
+			assert lines is not None
 			msg = "Tells/reminds for (%s): %%s" % event.nick
 			title = "Tells/reminds for (%s)" % event.nick
 			pastehelper(bot, msg, items=lines, altmsg="%s", force=True, title=title)
 
 
-def tell(event, bot):
+def tell(event: Event, bot: BotLike) -> None:
 	""" tell target msg. Will tell a user <target> a message <msg>."""
 	target, msg = argumentSplit(event.argument, 2)
 	if not target: return bot.say(functionHelp(tell))
 	if not msg:
 		return bot.say("Need something to tell (%s)" % target)
-	users, unknown, dupes, hasself = _generate_users(bot, target, USERS_MODULE.get_username(bot, event.nick))
+	caller = USERS_MODULE.get_username(bot, event.nick) or event.nick or ""
+	users, unknown, dupes, hasself = _generate_users(bot, target, caller)
 	
 	if not users:
 		if hasself: return bot.say("Use notepad.")
 		else: return bot.say("Sorry, don't know (%s)." % target)
 	
-	cmd = event.command.lower()
+	cmd = (event.command or "").lower()
 	
 	targets = []
 	for user, target in users:
@@ -172,20 +183,23 @@ def tell(event, bot):
 			URSELF if hasself else "", MULTIUSER % "Telling" if dupes else ""))
 
 
-def remind(event, bot):
+def remind(event: Event, bot: BotLike) -> None:
 	""" remind target datespec msg. Will remind a user <target> about a message <msg> at <datespec> time.
 		datespec can be relative (in) or calendar/day based (on), e.g. 'in 5 minutes'"""
 	target, dtime1, dtime2, msg = argumentSplit(event.argument, 4)
 	if not target: return bot.say(functionHelp(tell))
+	if not dtime1: return bot.say("Need time to remind.")
 	if dtime1.lower() == "tomorrow":
 		target, dtime1, msg = argumentSplit(event.argument, 3) # reparse is easiest way I guess... resolves #30 if need to readdress
 		dtime2 = ""
 	else:
 		if not (dtime1 and dtime2): return bot.say("Need time to remind.")
+	if not target:
+		return bot.say(functionHelp(tell))
 	if not msg:
 		return bot.say("Need something to remind (%s)" % target)
 	
-	origuser = USERS_MODULE.get_username(bot, event.nick)
+	origuser = USERS_MODULE.get_username(bot, event.nick) or event.nick or ""
 	users, unknown, dupes, _ = _generate_users(bot, target, origuser, False)
 
 	if not users:
@@ -206,33 +220,31 @@ def remind(event, bot):
 	origintime = timegm(gmtime())
 	alocaltime = localtime(origintime)
 	localoffset = timegm(alocaltime) - origintime
+	t: struct_time = alocaltime
+	tz: Any = None
 	if locmod and goomod:
-		t = origintime
 		loc = locmod.getlocation(bot.dbQuery, origuser)
 		if not loc: 
 			timelocale = False
-			t = alocaltime
 		else:
-			tz = goomod.google_timezone(loc[1], loc[2], t)
+			tz = goomod.google_timezone(loc[1], loc[2], origintime)
 			if not tz: 
 				timelocale = False
-				t = alocaltime
 			else:
-				t = gmtime(t + tz[2] + tz[3]) #[2] dst [3] timezone offset
-	else:
-		t = alocaltime
+				t = gmtime(origintime + tz[2] + tz[3]) #[2] dst [3] timezone offset
 	ntime = parseDateTime(dtime, t)
 	if not ntime: return bot.say("Don't know what time and/or day and/or date (%s) is." % dtime)
 	
 	# go on, change it. I dare you.
 	if timelocale:
-		t = timegm(t) - tz[2] - tz[3]
+		assert tz is not None
+		current_time = timegm(t) - tz[2] - tz[3]
 		ntime = ntime - tz[2] - tz[3]
 	else:
-		t = timegm(t) - localoffset
+		current_time = timegm(t) - localoffset
 		ntime = ntime - localoffset
 
-	if ntime < t or ntime > t+MAX_REMIND_TIME:
+	if ntime < current_time or ntime > current_time+MAX_REMIND_TIME:
 		return bot.say("Don't sass me with your back to the future reminds.")
 	
 	targets = []
@@ -243,15 +255,15 @@ def remind(event, bot):
 			(user, int(ntime), int(origintime), 1, source, msg))
 		if not source: targets.append("you")
 		else: targets.append(target)
-	bot.say(RPLREMINDFORMAT % (event.nick, english_list(targets), distance_of_time_in_words(ntime, t),
+	bot.say(RPLREMINDFORMAT % (event.nick, english_list(targets), distance_of_time_in_words(ntime, current_time),
 		UNKNOWN % english_list(unknown) if unknown else "", MULTIUSER % "Reminding" if dupes else ""))
 
 
-def _user_rename(old, new):
+def _user_rename(old: str, new: str) -> tuple[Query, ...]:
 	return (('''UPDATE tell SET user=? WHERE user=?;''', (new, old)),)
 
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global USERS_MODULE # oh nooooooooooooooooo
 	bot.dbCheckCreateTable("tell", 
 		'''CREATE TABLE tell(

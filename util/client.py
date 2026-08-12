@@ -1,11 +1,14 @@
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any, NoReturn, cast
 #pyBurlyBot
 
 # twisted imports
 from twisted.words.protocols.irc import IRCClient, IRCBadModes, parseModes, X_DELIM, \
 	symbolic_to_numeric, numeric_to_symbolic, ctcpExtract, lowQuote
-from twisted.internet import reactor
+from twisted.internet import reactor as _reactor
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.python import log
+from twisted.python.failure import Failure
 from twisted.protocols.basic import LineReceiver
 from twisted.protocols.policies import TimeoutMixin
 from OpenSSL import SSL
@@ -17,8 +20,11 @@ from math import floor
 
 #BurlyBot imports
 from .helpers import processHostmask, processListReply, PrefixMap, isIterable, splitEncodedUnicode
+from .state import Network
 
-def _tlsConnectionErrorHint(settings, reason):
+reactor: Any = _reactor
+
+def _tlsConnectionErrorHint(settings: Any, reason: Any) -> str | None:
 	if not getattr(settings, "ssl", False) or not reason.check(SSL.Error):
 		return None
 	return (
@@ -48,14 +54,25 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	erroneousNickFallback = "BurlyBot"
 	linethrottle = 3
 	_lines = 0
-	_lastmsg = 0
-	_lastCL = None
-	supported = None
+	_lastmsg: float = 0
+	_lastCL: Any = None
+	supported: Any = None
 	altindex = 0
 	prefixlen = None
 	delimiter = b'\n' # LineReceiver adds this after _reallySendLine appends CR.
-	versionName = "pyBurlyBot git"
-	realname = "Burly Bot"
+	versionName: Any = "pyBurlyBot git"
+	realname: Any = "Burly Bot"
+	settings: Any
+	debug: int
+	state: Network | None
+	dispatch: Callable[..., bool]
+	dispatcher: Any
+	container: Any
+	_dqueue: deque[str]
+	_names: dict[str, list[str]]
+	_banlist: dict[str, list[tuple[str, str, str, str | None]]]
+	_exceptlist: dict[str, list[tuple[str, str, str, str | None]]]
+	_invitelist: dict[str, list[tuple[str, str, str, str | None]]]
 	
 	# http://twistedmatrix.com/trac/browser/trunk/twisted/words/protocols/irc.py
 	# irc_ and RPL_ methods are duplicated here verbatim so that we can dispatch higher level
@@ -63,7 +80,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	
 	# custom sendline throttler. This might be overly complex but should behave similar to mIRC
 	# where lines are only throttled once you cross a threshold. I don't know if the cooldown is similar though
-	def sendLine(self, line):
+	def sendLine(self, line: str | bytes) -> None:
 		if isinstance(line, bytes):
 			line = line.decode(self.settings.encoding, "replace")
 		encoded = line.encode(self.settings.encoding)
@@ -88,7 +105,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 				self._lastCL = reactor.callLater(1.0, self._sendLine)
 		self._lastmsg = t
 		
-	def _sendLine(self):
+	def _sendLine(self) -> None:
 		t = time()
 		if self._dqueue:
 			line = self._dqueue.popleft()
@@ -102,15 +119,15 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			self._lastCL = None
 
 	# sticking to specification
-	def _reallySendLine(self, line):
+	def _reallySendLine(self, line: str) -> None:
 		quoted_line = lowQuote(line).encode(self.settings.encoding) + b'\r'
 		if self.debug >= 2: print("REALLY SENDING LINE:", repr(quoted_line + self.delimiter))
 		return LineReceiver.sendLine(self, quoted_line)
-	def dataReceived(self, data):
+	def dataReceived(self, data: bytes) -> None:
 		self.resetTimeout()
 		IRCClient.dataReceived(self, data)
 	
-	def names(self, channels):
+	def names(self, channels: str | Iterable[str]) -> None:
 		"""
 		List the users in a channel.
 		"""
@@ -119,17 +136,18 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		else:
 			self.sendLine('NAMES %s' % channels)
 
-	def banlist(self, channel):
+	def banlist(self, channel: str) -> None:
 		self.mode(channel, True, "b")
 	
 	###
 	### The following are "low level events" almost (probably, maybe butchered) verbatim from IRCClient
 	###
-	def irc_JOIN(self, prefix, params):
+	def irc_JOIN(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when a user joins a channel.
 		"""
 		nick, ident, host = processHostmask(prefix)
+		assert nick is not None
 		channel = params[-1]
 		if nick == self.nickname:
 			# take note of our prefix! (for message length calculation
@@ -144,11 +162,12 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			self.dispatch(self, "userJoined", prefix=prefix, params=params, hostmask=prefix, target=channel, 
 				nick=nick, ident=ident, host=host)
 
-	def irc_PART(self, prefix, params):
+	def irc_PART(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when a user leaves a channel.
 		"""
 		nick, ident, host = processHostmask(prefix)
+		assert nick is not None
 		channel = params[0]
 		if nick == self.nickname:
 			# take note of our prefix! (for message length calculation
@@ -162,16 +181,17 @@ class BurlyBot(IRCClient, TimeoutMixin):
 				nick=nick, ident=ident, host=host)
 			
 
-	def irc_QUIT(self, prefix, params):
+	def irc_QUIT(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when a user has quit.
 		"""
 		nick, ident, host = processHostmask(prefix)
+		assert nick is not None
 		if self.state: self.state._userquit(nick)
 		self.dispatch(self, "userQuit", prefix=prefix, params=params, hostmask=prefix, msg=params[0], 
 			nick=nick, ident=ident, host=host)
 
-	def irc_MODE(self, prefix, params):
+	def irc_MODE(self, prefix: str, params: list[str]) -> None:
 		"""
 		Parse a server mode change message.
 		"""
@@ -201,7 +221,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			self.dispatch(self, "modeChanged", prefix=prefix, params=params, hostmask=prefix, target=channel,
 				added=added, removed=removed, modes=modes, args=args, nick=nick, ident=ident, host=host)
 
-	def irc_PRIVMSG(self, prefix, params):
+	def irc_PRIVMSG(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when we get a message.
 		"""
@@ -231,7 +251,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		self.dispatch(self, "privmsged", prefix=prefix, params=params, hostmask=user, target=channel, msg=message, 
 			nick=nick, ident=ident, host=host)
 
-	def irc_NOTICE(self, prefix, params):
+	def irc_NOTICE(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when a user gets a notice.
 		"""
@@ -255,11 +275,12 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		self.dispatch(self, "noticed", prefix=prefix, params=params, hostmask=user, target=channel, msg=message,
 			nick=nick, ident=ident, host=host)
 
-	def irc_NICK(self, prefix, params):
+	def irc_NICK(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when a user changes their nickname.
 		"""
 		nick, ident, host = processHostmask(prefix)
+		assert nick is not None
 		
 		if nick == self.nickname:
 			# take note of our prefix! (for message length calculation
@@ -271,7 +292,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			self.dispatch(self, "userRenamed", prefix=prefix, params=params, hostmask=prefix, newname=params[0], 
 				nick=nick, ident=ident, host=host)
 
-	def irc_KICK(self, prefix, params):
+	def irc_KICK(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when a user is kicked from a channel.
 		"""
@@ -286,7 +307,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			if self.state: self.state._userpart(channel, kicked)
 			self.dispatch(self, "userKicked", prefix=prefix, params=params, hostmask=prefix, nick=kicker, target=channel, msg=message, kicked=kicked)
 
-	def irc_RPL_TOPIC(self, prefix, params):
+	def irc_RPL_TOPIC(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when the topic for a channel is initially reported or when it
 		subsequently changes.
@@ -299,7 +320,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		self.dispatch(self, "topicUpdated", prefix=prefix, params=params, hostmask=prefix, target=channel, newtopic=newtopic, 
 				nick=nick, ident=ident, host=host)
 
-	def irc_RPL_NOTOPIC(self, prefix, params):
+	def irc_RPL_NOTOPIC(self, prefix: str, params: list[str]) -> None:
 		"""
 		...
 		"""
@@ -310,20 +331,20 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		self.dispatch(self, "topicUpdated", prefix=prefix, params=params, hostmask=prefix, target=channel, newtopic=newtopic, 
 				nick=nick, ident=ident, host=host)
 
-	def irc_RPL_ENDOFMOTD(self, prefix, params):
+	def irc_RPL_ENDOFMOTD(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when the bot receives RPL_ENDOFMOTD from the server.
 		
 		motd is a list containing the accumulated contents of the message of the day.
 		"""
 		motd = self.motd
-		if self.state: self.state._motd = motd
+		if self.state: self.state.motd = motd
 		# The following sets self.motd to None, so we get the motd first
 		IRCClient.irc_RPL_ENDOFMOTD(self, prefix, params)
 		self.dispatch(self, "receivedMOTD", prefix=prefix, params=params, motd=motd)
 			
-	def irc_RPL_MYINFO(self, prefix, params):
-		info = params[1].split(None, 3)
+	def irc_RPL_MYINFO(self, prefix: str, params: list[str]) -> None:
+		info: list[str | None] = list(params[1].split(None, 3))
 		while len(info) < 4:
 			info.append(None)
 		servername, version, umodes, cmodes = info
@@ -331,7 +352,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			umodes=umodes, cmodes=cmodes)
 	
 	### The following are custom, not taken from IRCClient:
-	def irc_RPL_CHANNELMODEIS(self, prefix, params):
+	def irc_RPL_CHANNELMODEIS(self, prefix: str, params: list[str]) -> None:
 		"""
 		Parse a RPL_CHANNELMODEIS message.
 		"""
@@ -350,12 +371,12 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			self.dispatch(self, "channelModeIs", prefix=prefix, params=params, hostmask=prefix, target=channel,
 				added=added, modes=modes, args=args)
 
-	def irc_RPL_CREATIONTIME(self, prefix, params):
+	def irc_RPL_CREATIONTIME(self, prefix: str, params: list[str]) -> None:
 		channel = params[1]
 		t = params[2]
 		self.dispatch(self, "creationTime", prefix=prefix, params=params, target=channel, creationtime=t)
 
-	def irc_RPL_NAMREPLY(self, prefix, params):
+	def irc_RPL_NAMREPLY(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when NAMES reply is received from the server.
 		"""
@@ -367,11 +388,11 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		self.dispatch(self, "nameReply", prefix=prefix, params=params, target=channel, users=users)
 
 
-	def irc_RPL_ENDOFNAMES(self, prefix, params):
+	def irc_RPL_ENDOFNAMES(self, prefix: str, params: list[str]) -> None:
 		channel = params[1]
 		self.dispatch(self, "endOfNames", prefix=prefix, params=params, target=channel, users=self._names.pop(channel, []))
 
-	def irc_RPL_BANLIST(self, prefix, params):
+	def irc_RPL_BANLIST(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when RPL_BANLIST reply is received from the server.
 		"""
@@ -381,13 +402,13 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		self.dispatch(self, "banList", prefix=prefix, params=params, target=channel, banmask=banmask, hostmask=hostmask, 
 			timeofban=t, nick=nick, ident=ident, host=host)
 
-	def irc_RPL_ENDOFBANLIST(self, prefix, params):
+	def irc_RPL_ENDOFBANLIST(self, prefix: str, params: list[str]) -> None:
 		channel = params[1]
 		banlist = self._banlist.pop(channel, [])
 		if self.state: self.state._addbans(channel, banlist)
 		self.dispatch(self, "endOfBanList", prefix=prefix, params=params, target=channel, banlist=banlist)
 			
-	def irc_RPL_EXCEPTLIST(self, prefix, params):
+	def irc_RPL_EXCEPTLIST(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when RPL_EXCEPTLIST reply is received from the server.
 		"""
@@ -397,14 +418,14 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		self.dispatch(self, "exceptList", prefix=prefix, params=params, target=channel, exceptmask=exceptmask, hostmask=hostmask, 
 			timeofban=t, nick=nick, ident=ident, host=host)
 
-	def irc_RPL_ENDOFEXCEPTLIST(self, prefix, params):
+	def irc_RPL_ENDOFEXCEPTLIST(self, prefix: str, params: list[str]) -> None:
 		channel = params[1]
 
 		exceptlist = self._exceptlist.pop(channel, [])
 		if self.state: self.state._addexcepts(channel, exceptlist)
 		self.dispatch(self, "endOfBanList", prefix=prefix, params=params, target=channel, exceptlist=exceptlist)
 
-	def irc_RPL_INVITELIST(self, prefix, params):
+	def irc_RPL_INVITELIST(self, prefix: str, params: list[str]) -> None:
 		"""
 		Called when RPL_INVITELIST reply is received from the server.
 		"""
@@ -414,27 +435,27 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		self.dispatch(self, "inviteList", prefix=prefix, params=params, target=channel, invitemask=invitemask, hostmask=hostmask, 
 			timeofban=t, nick=nick, ident=ident, host=host)
 
-	def irc_RPL_ENDOFINVITELIST(self, prefix, params):
+	def irc_RPL_ENDOFINVITELIST(self, prefix: str, params: list[str]) -> None:
 		channel = params[1]
 
 		invitelist = self._invitelist.pop(channel, [])
 		if self.state: self.state._addinvites(channel, invitelist)
 		self.dispatch(self, "endOfInviteList", prefix=prefix, params=params, target=channel, invitelist=invitelist)
 
-	def irc_RPL_ISUPPORT(self, prefix, params):
+	def irc_RPL_ISUPPORT(self, prefix: str, params: list[str]) -> None:
 		IRCClient.irc_RPL_ISUPPORT(self, prefix, params)
 		# This seems excessive but it's the only way to reliably update the prefixmap
 		self.prefixmap.loadfromprefix(iter(self.supported.getFeature("PREFIX").items()))
 		
 	# This method is interesting, for example ERROR gets sent from Rizon when you quit
 	# TODO: find out what to actually do with this.
-	def irc_ERROR(self, prefix, params):
+	def irc_ERROR(self, prefix: str, params: list[str]) -> None:
 		print("ERROR received: %s" % params)
 		
 	###
 	### Modified command handler from IRCCLient
 	###
-	def handleCommand(self, command, prefix, params):
+	def handleCommand(self, command: str, prefix: str, params: list[str]) -> None:
 		"""
 		Determine the function to call for the given command and call it with
 		the given arguments.
@@ -458,7 +479,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			if method is None:
 				self.irc_unknown(prefix, command, params)
 
-	def lineReceived(self, line):
+	def lineReceived(self, line: str | bytes) -> None:
 		if isinstance(line, bytes):
 			line = line.decode(self.settings.encoding, "replace")
 		if self.debug >= 3: print("INCOMING LINE: %s" % line)
@@ -467,7 +488,8 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	###
 	### The following are "preprocessed" events normally called from IRCClient and mostly duplicated from IRCClient
 	###
-	def ctcpQuery(self, user, channel, messages, params):
+	def ctcpQuery(self, user: str, channel: str,  # type: ignore[override]
+		messages: Sequence[tuple[str, str | None]], params: list[str]) -> None:  # type: ignore[override]
 		"""
 		Dispatch method for any CTCP queries received.
 		Duplicate tags ignored.
@@ -490,7 +512,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			seen.add(tag)
 	
 	# borrowed mostly from IRCClient
-	def ctcpQueryB_VERSION(self, user, channel, data):
+	def ctcpQueryB_VERSION(self, user: str, channel: str, data: str | None) -> None:
 		if self.versionName:
 			nick = user.split('!')[0]
 			veritems = [self.versionName]
@@ -498,7 +520,8 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			if self.versionEnv: veritems.append(self.versionEnv)
 			self.ctcpMakeReply(nick, [('VERSION', ';'.join(veritems))])
 	
-	def ctcpReply(self, user, channel, messages, params):
+	def ctcpReply(self, user: str, channel: str,  # type: ignore[override]
+		messages: Sequence[tuple[str, str | None]], params: list[str]) -> None:  # type: ignore[override]
 		"""
 		Dispatch method for any CTCP replies received.
 		Duplicate tags ignored.
@@ -520,11 +543,12 @@ class BurlyBot(IRCClient, TimeoutMixin):
 					data=data, nick=nick, ident=ident, host=host)
 			seen.add(tag)
 
-	def ctcpUnknownQuery(self, user, channel, tag, data):
+	def ctcpUnknownQuery(self, user: str, channel: str, tag: str,
+		data: str | None) -> None:
 		if self.settings.debug:
 			print('Unknown CTCP query from %r: %r %r' % (user, tag, data))
 
-	def signedOn(self):
+	def signedOn(self) -> None:
 		"""
 		Called when bot has successfully signed on to server.
 		"""
@@ -548,14 +572,16 @@ class BurlyBot(IRCClient, TimeoutMixin):
 
 	# TODO: this currently doesn't get called. Do we want to dispatch these events? Or just make
 	# module catch CTCP events and check for ACTION tag?
-	def action(self, hostmask, channel, msg, params):
+	def action(self, hostmask: str, channel: str, msg: str,  # type: ignore[override]
+		params: list[str]) -> None:  # type: ignore[override]
 		"""
 		This will get called when the bot sees someone do an action.
 		"""
 		pass
 	
 	#overriding msg
-	def msg(self, user, msg, length=None, strins=None):
+	def msg(self, user: str, msg: str, length: int | None=None,
+		strins: Any=None) -> NoReturn:
 		raise NotImplementedError("Use sendmsg instead.")
 		
 	# override the method that determines how a nickname is changed on
@@ -563,7 +589,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	# TODO: At the moment this attempts to iterate the altnicks if it exists and falls back to
 	# suffix after iterating. When to reset the iteration? At the moment it does it on connection
 	# should probably make a reactor.callLater, and cancel it on disconnect or something.
-	def alterCollidedNick(self, nickname):
+	def alterCollidedNick(self, nickname: str) -> str:
 		if self.settings.altnicks:
 			if self.altindex < len(self.settings.altnicks):
 				s = self.settings.altnicks[self.altindex]
@@ -573,7 +599,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 				return self.settings.nick
 		return (nickname + self.settings.nicksuffix)
 		
-	def irc_unknown(self, prefix, command, params):
+	def irc_unknown(self, prefix: str, command: str, params: list[str]) -> None:
 		if self.settings.debug:
 			print("Unknown command: %s, %s, %s" % (prefix, command, params))
 	
@@ -581,7 +607,8 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	### Custom outgoing methods
 	###
 	# TODO: Need to add more of these for hooking other outbound events maybe, like notice...
-	def sendmsg(self, target, msg, direct=False, split=False, **kwargs):
+	def sendmsg(self, target: str, msg: Any, direct: bool=False, split: bool=False,
+		**kwargs: Any) -> None:
 		#check if there's hooks, if there is, dispatch, if not, send directly
 		if self.dispatcher.MSGHOOKS and not direct:
 			self.dispatch(self, "sendmsg", target=target, msg=msg, **kwargs)
@@ -598,10 +625,12 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	# TODO: (very low priority I guess) somehow get a builtmsg from sendmsg hooks
 	# NOTE: USAGE OF THIS MESSAGE MUST TEST FOR TRUE AND FALSE EXPLICITLY. None will be returned if bot isn't connected
 	#		at the time of call.
-	def checkSendMsg(self, target, msg):
+	def checkSendMsg(self, target: str, msg: Any) -> bool:
 		return len(self._buildmsg(target, msg, check=True).encode(self.settings.encoding)) <= self.calcAvailableMsgLength("")
 		
-	def _buildmsg(self, target, message, split=False, check=False, strins=None, **kwargs):
+	def _buildmsg(self, target: str, message: Any, split: bool=False, check: bool=False,
+		strins: str | list[str] | tuple[str, ...] | dict[str, str] | None=None,
+		**kwargs: Any) -> Any:
 		if not isinstance(message, str): message = str(message)
 		if strins:
 			if split:
@@ -630,7 +659,9 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	# TODO: this must accept either string or LIST for strins so that strins can be modified (when doing fcfs.)
 	# NOTE: Calculation will be off if NL/CR or any of the "lowQuote" characters are in s or strins.
 	# 		You should make sure your data doesn't contain any of those characters (NL/CR/020/NUL)
-	def assembleMsgWLen(self, s, strins=None, fcfs=False, joinsep=None):
+	def assembleMsgWLen(self, s: str,
+		strins: str | list[str] | tuple[str, ...] | dict[str, str] | None=None,
+		fcfs: bool=False, joinsep: str | None=None) -> str:
 		enc = self.settings.encoding
 		if isinstance(strins, str):
 			sl = self.calcAvailableMsgLength(s.format(""))
@@ -638,13 +669,15 @@ class BurlyBot(IRCClient, TimeoutMixin):
 				return splitEncodedUnicode(s, len(s)+sl, encoding=enc)[0][0]
 			return s.format(splitEncodedUnicode(strins, sl, encoding=enc)[0][0])
 		
+		if strins is None:
+			raise ValueError("Require list/tuple, dict, or string for strins.")
 		ls = len(strins)
 		if joinsep is not None: 
 			# lj is len(joinsep) when comparing to avail in fcfs add 2 to allow some
 			# room for start of next element at least
 			if isinstance(joinsep, str): lj = len(joinsep.encode(enc))
 			else: lj = len(joinsep)
-		if isIterable(strins):
+		if isinstance(strins, (list, tuple)):
 			if joinsep is not None: avail = self.calcAvailableMsgLength(s.format("")) # must be only one replacement
 			else: avail = self.calcAvailableMsgLength(s.format(*[""]*ls)) # format with empty strins to calc max avail
 			if avail < 0: # case where template string is already too big
@@ -707,7 +740,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		else:
 			raise ValueError("Require list/tuple, dict, or string for strins.")
 	
-	def calcAvailableMsgLength(self, command):
+	def calcAvailableMsgLength(self, command: str) -> int:
 		if self.prefixlen:
 			# 510 = line terminator 508 = something else I'm not knowing about
 			return 508 - self.prefixlen - len(lowQuote(command).encode(self.settings.encoding))
@@ -717,7 +750,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	###
 	### Connection management methods
 	###
-	def connectionMade(self):
+	def connectionMade(self) -> None:
 		IRCClient.connectionMade(self)
 		self._names = {}
 		self._banlist = {}
@@ -727,7 +760,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		# reset connection factory delay:
 		self.factory.resetDelay()
 
-	def connectionLost(self, reason):
+	def connectionLost(self, reason: Failure) -> None:  # type: ignore[override]
 		IRCClient.connectionLost(self, reason)
 		self.container._setBotinst(None)
 		if self.state: self.state._resetnetwork()
@@ -746,14 +779,14 @@ class BurlyBotFactory(ReconnectingClientFactory):
 	# the class of the protocol to build when new connection is made
 	protocol = BurlyBot
 
-	def __init__(self, serversettings):
+	def __init__(self, serversettings: Any) -> None:
 		#reconnect settings
 		self.container = serversettings.container
 		self.maxDelay = 45
 		self.factor = 1.9021605823
 	
-	def buildProtocol(self, address):
-		proto = ReconnectingClientFactory.buildProtocol(self, address)
+	def buildProtocol(self, address: Any) -> BurlyBot:
+		proto = cast(BurlyBot, ReconnectingClientFactory.buildProtocol(self, address))
 		proto.container = self.container
 		# for shortcut access:
 		proto.settings = self.container._settings

@@ -8,11 +8,11 @@ from util.settings import BaseServer, ConfigException, SettingsBase
 
 
 class SettingsTest(TestCase):
-	def test_save_options_writes_utf8_json_in_text_mode(self):
+	def test_save_options_writes_utf8_json_in_text_mode(self) -> None:
 		with TemporaryDirectory() as temp_dir:
 			config_path = Path(temp_dir, "BurlyBot.json")
 			settings = SettingsBase()
-			settings.configfile = config_path
+			settings.configfile = str(config_path)
 			settings.nick = "BürlyBot"
 
 			settings.saveOptions()
@@ -22,7 +22,7 @@ class SettingsTest(TestCase):
 			self.assertEqual(config["nick"], "BürlyBot")
 			self.assertEqual(len(config["servers"]), 2)
 
-	def test_server_normalizes_python_3_config_values(self):
+	def test_server_normalizes_python_3_config_values(self) -> None:
 		server = BaseServer(
 			{
 				"serverlabel": "example",
@@ -38,11 +38,11 @@ class SettingsTest(TestCase):
 		self.assertEqual(server.channels, [("#one",), ("#two", "secret")])
 		self.assertEqual(server._admins, ["alice"])
 
-	def test_server_requires_a_host(self):
+	def test_server_requires_a_host(self) -> None:
 		with self.assertRaises(ConfigException):
 			BaseServer({"serverlabel": "missing-host"})
 
-	def test_database_worker_uses_python_3_thread_api(self):
+	def test_database_worker_uses_python_3_thread_api(self) -> None:
 		with TemporaryDirectory() as temp_dir:
 			database = DBaccess(temp_dir, "test.db")
 			database.start()

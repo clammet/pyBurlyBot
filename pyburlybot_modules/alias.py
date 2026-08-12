@@ -1,12 +1,16 @@
+import sqlite3
+from typing import Any
+from util.event import Event
+from util.types import BotLike, DatabaseQuery
 #alias module
 from util import Mapping, fetchone, argumentSplit, functionHelp, pastehelper
 from sys import modules
 
 REQUIRES = ("users",)
-USERS_MODULE = None
+USERS_MODULE: Any = None
 
 
-def lookup_alias(qfunc, alias):
+def lookup_alias(qfunc: DatabaseQuery, alias: str) -> str | None:
 	result = qfunc('''SELECT user FROM alias WHERE alias = ?;''', (alias,), fetchone)
 	#check rows...
 	if not result:
@@ -15,49 +19,51 @@ def lookup_alias(qfunc, alias):
 		return result["user"]
 	except IndexError:
 		print("This shouldn't happen, invalid alias?")
+		return None
 
 
-def lookup_groupalias(qfunc, alias):
+def lookup_groupalias(qfunc: DatabaseQuery, alias: str) -> str | None:
 	result = qfunc('''SELECT grp FROM aliasgrpalias WHERE alias = ?;''', (alias,), fetchone)
 	if not result: return None
 	return result['grp']
 
 
-def add_alias(qfunc, source, alias):
+def add_alias(qfunc: DatabaseQuery, source: str, alias: str) -> None:
 	qfunc('''INSERT OR REPLACE INTO alias (alias, user) VALUES (?,?);''', (alias, source))
 
 
-def add_groupalias(qfunc, source, alias):
+def add_groupalias(qfunc: DatabaseQuery, source: str, alias: str) -> None:
 	qfunc('''INSERT OR REPLACE INTO aliasgrpalias (alias, grp) VALUES (?,?);''', (alias, source))
 
 
-def alias_list(qfunc, nick):
+def alias_list(qfunc: DatabaseQuery, nick: str) -> list[str]:
 	result = qfunc('''SELECT alias FROM alias WHERE user = ?;''', (nick,))
 	return [row['alias'] for row in result]
 
 
-def group_list(qfunc, group):
+def group_list(qfunc: DatabaseQuery, group: str) -> list[str]:
 	groupa = lookup_groupalias(qfunc, group)
 	if groupa: group = groupa
 	result = qfunc('''SELECT user FROM aliasgrp WHERE grp = ?;''', (groupa,))
 	return [row['user'] for row in result]
 
-def get_groupname(qfunc, group):
+def get_groupname(qfunc: DatabaseQuery, group: str) -> str | None:
 	g = lookup_groupalias(qfunc, group)
 	if g: return g
 	g = qfunc('''SELECT grp FROM aliasgrp WHERE grp = ?;''', (group,), fetchone)
 	if g: return g['grp']
+	return None
 
 
-def group_add(qfunc, group, user):
+def group_add(qfunc: DatabaseQuery, group: str, user: str) -> None:
 	qfunc('''INSERT OR REPLACE INTO aliasgrp (grp, user) VALUES(?,?);''', (group, user))
 
 
-def group_check(qfunc, group, nick):
+def group_check(qfunc: DatabaseQuery, group: str, nick: str) -> sqlite3.Row | None:
 	return qfunc('''SELECT 1 FROM aliasgrp WHERE grp = ? AND user = ?;''', (group, nick), fetchone)
 
 
-def subscripe(event, bot):
+def subscripe(event: Event, bot: BotLike) -> None:
 	""" subscripe [groupname]. subscripe will list all groups you are a member of. If groupname is supplied you will become
 	a member of groupname"""
 	user = USERS_MODULE.get_username(bot, event.nick, _inalias=True)
@@ -75,7 +81,7 @@ def subscripe(event, bot):
 		listgroups(bot, user)
 
 
-def unsubscripe(event, bot):
+def unsubscripe(event: Event, bot: BotLike) -> None:
 	""" unsubscripe groupname. unsubscripe will remove you from group groupname"""
 	user = USERS_MODULE.get_username(bot, event.nick, _inalias=True)
 	if not user: return bot.say("Do I know you?")
@@ -90,7 +96,7 @@ def unsubscripe(event, bot):
 		bot.say(functionHelp(unsubscripe))
 
 
-def listgroups(bot, user=None):
+def listgroups(bot: BotLike, user: str | None=None) -> None:
 	# [[group, [aliases]],]
 	nglist = []
 	if user:
@@ -116,7 +122,7 @@ def listgroups(bot, user=None):
 	return pastehelper(bot, msg, items=nglist, title=msg[:-3])
 
 
-def listgroupusers(bot, groupname):
+def listgroupusers(bot: BotLike, groupname: str) -> None:
 	# querying a group
 	members = group_list(bot.dbQuery, groupname)
 	if members:
@@ -126,7 +132,7 @@ def listgroupusers(bot, groupname):
 		return bot.say("Group not found: (%s)" % groupname)
 
 
-def group(event, bot):
+def group(event: Event, bot: BotLike) -> None:
 	""" group [groupname [user]]. group will display all groups. If groupname is supplied will list all users in group.
 	If groupname and user, add user to group groupname. See additional help for ~del.
 	|group ~del groupname [user]. ~del groupname will remove entire group (admin.) ~del groupname user will remove user from group. 
@@ -137,37 +143,37 @@ def group(event, bot):
 		# do a delete on group
 		if arg2 and arg3:
 			# assume arg2 is a groupname to remove arg3 from
-			group = get_groupname(bot.dbQuery, arg2)
-			if group:
+			group_name = get_groupname(bot.dbQuery, arg2)
+			if group_name:
 				nick = USERS_MODULE.get_username(bot, arg3, source=event.nick, _inalias=True)
 				if not nick:
 					return bot.say("User/alias (%s) not found." % arg3)
-				if group_check(bot.dbQuery, group, nick):
-					bot.dbQuery('''DELETE FROM aliasgrp WHERE grp = ? AND user = ?;''', (group, nick))
-					return bot.say("Removed (%s) from (%s)" % (nick, group))
+				if group_check(bot.dbQuery, group_name, nick):
+					bot.dbQuery('''DELETE FROM aliasgrp WHERE grp = ? AND user = ?;''', (group_name, nick))
+					return bot.say("Removed (%s) from (%s)" % (nick, group_name))
 				else:
-					return bot.say("User (%s) not found in group (%s)" % (nick, group))
+					return bot.say("User (%s) not found in group (%s)" % (nick, group_name))
 			else:
 				return bot.say("Group (%s) not found." % arg2)
 		elif arg2:
 			#remove entire group
 			if not bot.isadmin():
 				return bot.say("Sry.")
-			group = get_groupname(bot.dbQuery, arg2)
-			if group:
+			group_name = get_groupname(bot.dbQuery, arg2)
+			if group_name:
 				# delete aliases then group
 				bot.dbBatch(
-					('''DELETE FROM aliasgrpalias WHERE grp = ?;''', (group,), 
-					'''DELETE FROM aliasgrp WHERE grp = ?;''', (group,))
+					(('''DELETE FROM aliasgrpalias WHERE grp = ?;''', (group_name,)),
+					('''DELETE FROM aliasgrp WHERE grp = ?;''', (group_name,)))
 				)
-				return bot.say("Removed group (%s)" % arg3)
+				return bot.say("Removed group (%s)" % group_name)
 			else:
-				return bot.say("Group (%s) not found." % arg3)
+				return bot.say("Group (%s) not found." % arg2)
 		else:
 			# ~del help
 			return bot.say(functionHelp(group, "~del")) 
 	
-	if arg2:
+	if arg1 and arg2:
 		# check if group is already a user first:
 		target = lookup_alias(bot.dbQuery, arg1) # check target
 		if target:
@@ -179,16 +185,16 @@ def group(event, bot):
 			return bot.say("User/alias (%s) not found or seen." % arg2)
 		
 		# unalias group
-		group = get_groupname(bot.dbQuery, arg1)
-		if not group:
+		group_name = get_groupname(bot.dbQuery, arg1)
+		if not group_name:
 			# add new group, so create dummy alias entry:
 			add_groupalias(bot.dbQuery, arg1, arg1)
-			group = arg1
-		if group_check(bot.dbQuery, group, nick):
-			return bot.say("User (%s) is already a member of (%s)." % (nick, group))
+			group_name = arg1
+		if group_check(bot.dbQuery, group_name, nick):
+			return bot.say("User (%s) is already a member of (%s)." % (nick, group_name))
 
-		group_add(bot.dbQuery, group, nick)
-		return bot.say("User (%s) added to group (%s)." % (nick, group))
+		group_add(bot.dbQuery, group_name, nick)
+		return bot.say("User (%s) added to group (%s)." % (nick, group_name))
 
 	elif arg1:
 		return listgroupusers(bot, arg1)
@@ -197,7 +203,7 @@ def group(event, bot):
 
 
 # process adding an alias for a group. Returns False is group doesn't exist (for error display in caller)
-def aliasgroup(bot, groupname, alias):
+def aliasgroup(bot: BotLike, groupname: str, alias: str) -> bool | None:
 	source = lookup_groupalias(bot.dbQuery, groupname)
 	if not source:
 		source = groupname
@@ -214,10 +220,11 @@ def aliasgroup(bot, groupname, alias):
 		return bot.say("(%s) is already an alias for (%s)" % (alias, target))
 	add_groupalias(bot.dbQuery, source, alias)
 	bot.say("(%s) alias added for group (%s)" % (alias, source))
+	return None
 
 
 # process adding an alias for a user
-def aliasuser(bot, arg1, arg2, source):
+def aliasuser(bot: BotLike, arg1: str, arg2: str, source: str) -> None:
 	# Query target_user first so we can display error messages in sane order.
 	target_user = USERS_MODULE._get_username(bot.dbQuery, arg2)
 	if source == target_user: return bot.say("But %s is already %s." % (arg1, arg2))
@@ -255,7 +262,7 @@ def aliasuser(bot, arg1, arg2, source):
 
 
 # delete a user and/or group alias
-def del_alias(bot, alias):
+def del_alias(bot: BotLike, alias: str) -> None:
 	#attempt user alias delete
 	origin_user = lookup_alias(bot.dbQuery, alias)
 	if origin_user:
@@ -275,7 +282,7 @@ def del_alias(bot, alias):
 		return bot.say("Alias (%s) not found." % alias)
 
 
-def alias(event, bot):
+def alias(event: Event, bot: BotLike) -> None:
 	""" alias [target] aliasname. If only aliasname is supplied, aliases for aliasname are retrieved. 
 	Otherwise if target is also supplied, aliasname will become an alias of target (can also be a group.)
 	See addtional help for ~del.
@@ -322,7 +329,7 @@ def alias(event, bot):
 
 
 #init should always be here to setup needed DB tables or objects or whatever
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global USERS_MODULE # oh nooooooooooooooooo
 	bot.dbCheckCreateTable("alias", 
 		'''CREATE TABLE alias(

@@ -1,3 +1,4 @@
+from typing import Any
 from contextlib import contextmanager
 from importlib import import_module, invalidate_caches
 from pathlib import Path
@@ -12,15 +13,15 @@ from util.moduleloader import ModuleRegistry
 
 
 class Addons:
-	def __init__(self):
-		self.values = {}
+	def __init__(self) -> None:
+		self.values: dict[Any, tuple[Any, Any]] = {}
 
-	def _add(self, name, module, value):
+	def _add(self, name: Any, module: Any, value: Any) -> None:
 		self.values[name] = (module, value)
 
 
 @contextmanager
-def plugin_package(files):
+def plugin_package(files: Any) -> Any:
 	with TemporaryDirectory() as temp_dir:
 		package = "test_plugins"
 		package_dir = Path(temp_dir, package)
@@ -41,10 +42,10 @@ def plugin_package(files):
 			invalidate_caches()
 
 
-def make_settings(module_names, *, allowmodules=None, serverlabel="test-server"):
+def make_settings(module_names: Any, *, allowmodules: Any=None, serverlabel: Any="test-server") -> Any:
 	defaults = {}
 
-	def get_option(option, *, module=None, default=None, **kwargs):
+	def get_option(option: Any, *, module: Any=None, default: Any=None, **kwargs: Any) -> Any:
 		defaults[(module, option)] = default
 		return default
 
@@ -62,7 +63,7 @@ def make_settings(module_names, *, allowmodules=None, serverlabel="test-server")
 	return settings
 
 
-def load_dispatcher(settings, registry):
+def load_dispatcher(settings: Any, registry: Any) -> Any:
 	dispatcher = Dispatcher(settings, registry)
 	settings.dispatcher = dispatcher
 	dispatcher.reload()
@@ -70,7 +71,7 @@ def load_dispatcher(settings, registry):
 
 
 class DispatcherTest(TestCase):
-	def test_loads_package_module_and_sorts_mappings_once(self):
+	def test_loads_package_module_and_sorts_mappings_once(self) -> None:
 		files = {
 			"demo": (
 				"from util import Mapping\n"
@@ -91,7 +92,7 @@ class DispatcherTest(TestCase):
 				[5, 20],
 			)
 
-	def test_bundled_plugins_do_not_pollute_top_level_names(self):
+	def test_bundled_plugins_do_not_pollute_top_level_names(self) -> None:
 		stdlib_modules = {name: import_module(name) for name in ("random", "time", "wikipedia")}
 		registry = ModuleRegistry()
 		module_dir = Path(__file__).resolve().parents[1] / "pyburlybot_modules"
@@ -112,7 +113,7 @@ class DispatcherTest(TestCase):
 		self.assertEqual(restored_class.__module__, "pyburlybot_modules.logindexsearch")
 		registry.reset()
 
-	def test_disallowed_requirement_is_not_imported(self):
+	def test_disallowed_requirement_is_not_imported(self) -> None:
 		files = {
 			"parent": "REQUIRES = ('blocked',)\n",
 			"blocked": "raise RuntimeError('must not be imported')\n",
@@ -127,7 +128,7 @@ class DispatcherTest(TestCase):
 			self.assertNotIn("%s.blocked" % package, sys.modules)
 			self.assertIn("not allowed: blocked", registry.activation_errors[settings.serverlabel]["parent"])
 
-	def test_single_string_requirement_is_normalized_and_loaded(self):
+	def test_single_string_requirement_is_normalized_and_loaded(self) -> None:
 		files = {
 			"parent": "REQUIRES = 'dependency'\n",
 			"dependency": "VALUE = 42\n",
@@ -139,7 +140,7 @@ class DispatcherTest(TestCase):
 			self.assertEqual(set(dispatcher.modules), {"parent", "dependency"})
 			self.assertEqual(dispatcher.get_module("dependency").VALUE, 42)
 
-	def test_circular_requirements_report_the_dependency_path(self):
+	def test_circular_requirements_report_the_dependency_path(self) -> None:
 		files = {
 			"first": "REQUIRES = ('second',)\n",
 			"second": "REQUIRES = ('first',)\n",
@@ -155,7 +156,7 @@ class DispatcherTest(TestCase):
 				registry.activation_errors[settings.serverlabel]["first"],
 			)
 
-	def test_configuration_initialization_and_addons_are_pipeline_stages(self):
+	def test_configuration_initialization_and_addons_are_pipeline_stages(self) -> None:
 		files = {
 			"service": (
 				"OPTIONS = {'enabled': (bool, 'Whether enabled', True)}\n"
@@ -173,7 +174,7 @@ class DispatcherTest(TestCase):
 			self.assertEqual(settings.defaults[("service", "enabled")], True)
 			self.assertEqual(settings.addons.values["answer"], ("service", 42))
 
-	def test_activation_is_isolated_per_server(self):
+	def test_activation_is_isolated_per_server(self) -> None:
 		with plugin_package({"demo": "VALUE = 42\n"}) as (package, _):
 			registry = ModuleRegistry(package)
 			first = load_dispatcher(make_settings(("demo",), serverlabel="first"), registry)
@@ -183,7 +184,7 @@ class DispatcherTest(TestCase):
 			self.assertFalse(second.is_module_loaded("demo"))
 			self.assertIn("demo", registry.imported)
 
-	def test_registry_reset_reimports_changed_source(self):
+	def test_registry_reset_reimports_changed_source(self) -> None:
 		with plugin_package({"demo": "VALUE = 1\n"}) as (package, package_dir):
 			registry = ModuleRegistry(package)
 			settings = make_settings(("demo",))

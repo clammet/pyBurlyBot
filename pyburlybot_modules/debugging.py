@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 #debugging.py
 
 #some commands to facilitate debugging
@@ -7,16 +9,16 @@ from util import Mapping
 from twisted.internet import reactor
 from twisted.internet.threads import blockingCallFromThread
 
-def doeval(bot, event):
+def doeval(bot: BotLike, event: Event) -> str | None:
 	try:
-		exec(event.argument)
+		exec(event.argument or "")
 		return None
 	except Exception as e:
-		return "%s : %s" % (type(e).__name__, e.message)
+		return "%s : %s" % (type(e).__name__, e)
 
 
 # WARNING: DO NOT CALL A METHOD THAT CALLS "blockingCallFromThread", you will have bad time and freeze bot.
-def admin_runeval(event, bot):
+def admin_runeval(event: Event, bot: BotLike) -> None:
 	r = blockingCallFromThread(reactor, doeval, bot, event)
 	if r:
 		bot.say(r)
@@ -24,7 +26,7 @@ def admin_runeval(event, bot):
 		bot.say("Done.")
 
 
-def admin_flood(event, bot):
+def admin_flood(event: Event, bot: BotLike) -> None:
 	for x in range(7):
 		bot.say("Hello %s" % x)
 

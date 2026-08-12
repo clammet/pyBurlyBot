@@ -1,3 +1,6 @@
+from collections.abc import Callable, Iterable, Mapping
+from types import ModuleType
+from typing import Any, cast
 #settings and stuff
 from os.path import join
 from os import execv
@@ -10,7 +13,7 @@ from atexit import register
 
 from twisted.internet.ssl import CertificateOptions, PrivateCertificate, platformTrust
 from twisted.python import log
-from twisted.internet import reactor
+from twisted.internet import reactor as _reactor
 from twisted.internet.threads import blockingCallFromThread
 
 #BurlyBot
@@ -21,6 +24,8 @@ from util.moduleloader import ModuleRegistry
 from util.client import BurlyBotFactory
 from util.db import DBManager
 from util.timer import Timers
+
+reactor: Any = _reactor
 
 KEYS_COMMON = ("admins", "altnicks", "cert", "commandprefix", "datafile", "encoding", "moduleopts", 
 	"nick", "nickservpass", "nicksuffix", "verify")
@@ -70,34 +75,41 @@ class NoDefault:
 # This is managed from dispatcher, but accessed is managed through settings, and called from container.
 # (container wrapped the call in callfromthread if needed and settings managed allowed access)
 class _ADDONS:
-	def __init__(self):
-		self._dict = {}
+	def __init__(self) -> None:
+		self._dict: dict[str, tuple[str, Callable[..., Any]]] = {}
 	
-	def clear(self):
+	def clear(self) -> None:
 		self._dict.clear()
 		
-	def _add(self, addonname, modulename, f):
+	def _add(self, addonname: str, modulename: str, f: Callable[..., Any]) -> None:
 		self._dict[addonname] = (modulename, f)
 		
-	def _getModuleAddon(self, addonname):
+	def _getModuleAddon(self, addonname: str) -> tuple[str, Callable[..., Any]]:
 		return self._dict[addonname]
 
 class BaseServer:
-	moduleopts = None # {}
+	moduleopts: dict[str, dict[str, Any]]
+	serverlabel: str
+	host: str
+	port: int
+	ssl: bool
+	channels: list[tuple[str, ...]]
+	allowmodules: set[str]
+	denymodules: set[str]
 	
-	def __init__(self, opts):
+	def __init__(self, opts: Mapping[str, Any]) -> None:
 		self.moduleopts = {}
 		self.setup(opts)
 	
 	# special handler for .admins (.lowers() each nick on set to make for easier checking in wrapper.isadmin)
 	@property
-	def admins(self):
+	def admins(self) -> list[str]:
 		return self.__dict__.get("_admins", getattr(Settings, "_admins"))
 	@admins.setter
-	def admins(self, value):
+	def admins(self, value: Iterable[str]) -> None:
 		self._admins = [x.lower() for x in value]
 	
-	def setup(self, opts):
+	def setup(self, opts: Mapping[str, Any]) -> None:
 		self.channels = []
 		for key in KEYS_SERVER:
 			opt = opts.get(key, None)
@@ -142,8 +154,8 @@ class BaseServer:
 			elif opt:
 				setattr(self, key, opt)
 		
-	def _getDict(self):
-		d = OrderedDict()
+	def _getDict(self) -> OrderedDict[str, Any]:
+		d: OrderedDict[str, Any] = OrderedDict()
 		for key in KEYS_SERVER:
 			# TODO: really bad hack for .admins (and other) property
 			okey = key
@@ -153,7 +165,7 @@ class BaseServer:
 				if value: 
 					#preprocess channels
 					if okey == "channels":
-						channels = []
+						channels: list[Any] = []
 						for channel in value:
 							if len(channel) == 1:
 								channels.append(channel[0])
@@ -170,17 +182,17 @@ DummyServer = BaseServer # alias to make example server code clear
 
 class Server(BaseServer):
 	
-	def __init__(self, opts):
+	def __init__(self, opts: Mapping[str, Any]) -> None:
 		super().__init__(opts)
-		self.addons = None
+		self.addons: _ADDONS | None = None
 		#dispatcher placeholder (probably not needed)
-		self.dispatcher = None
+		self.dispatcher: Dispatcher | None = None
 		# TODO: fix the complicated relationship between Factory<->Settings<->Container
 		#       also the relationship between Dispatcher<->Settings<->Dispatcher
 		self.container = Container(self)
 		self._factory = BurlyBotFactory(self)
 
-	def reload_modules(self, registry):
+	def reload_modules(self, registry: ModuleRegistry) -> None:
 		# Addons should only be created once
 		if self.addons is None: self.addons = _ADDONS()
 		else: self.addons.clear()
@@ -191,14 +203,14 @@ class Server(BaseServer):
 			self.dispatcher.registry = registry
 		self.dispatcher.reload()
 		
-	def __getattr__(self, name):
+	def __getattr__(self, name: str) -> Any:
 		# get Server setting if set, else fall back to global Settings
 		if name in self.__dict__: 
 			return getattr(self, name)
 		else:
 			return getattr(Settings, name)
 	
-	def getOptions(self, opts, **kwargs):
+	def getOptions(self, opts: Iterable[str], **kwargs: Any) -> list[Any]:
 		vals = []
 		for opt in opts:
 			vals.append(self.getOption(opt, **kwargs))
@@ -207,13 +219,15 @@ class Server(BaseServer):
 	# if channel or server is set, retrieve for that specific thing.
 	# if channel or server is False, retrieve "global" for that thing.
 	# TODO: make sure this optimized as it can be
-	def getOption(self, opt, module=None, channel=None, server=None, default=NoDefault, setDefault=True, inreactor=False):
+	def getOption(self, opt: str, module: str | None=None,
+		channel: str | bool | None=None, server: str | bool | None=None,
+		default: Any=NoDefault, setDefault: bool=True, inreactor: bool=False) -> Any:
 		if opt in KEYS_DENY: raise ValueError("Access denied. (%s)" % opt)
 		if module:
 			if server or server is None:
 				# try searching for option in a server object
 				if not server is None:
-					try: moduleopts = Settings.servers[server].moduleopts
+					try: moduleopts = Settings.servers[cast(str, server)].moduleopts
 					except KeyError:
 						raise ValueError("Server (%s) not found" % server)
 				else:
@@ -252,17 +266,18 @@ class Server(BaseServer):
 					moduleopts.setdefault(module, {})[opt] = default
 				return default
 		#non-module (core) options
-		if server is None:
-			server = self
-		elif server:
-			if not server in Settings.servers:
-				raise ValueError("Server label (%s) not found." % server)
-			server = Settings.servers[server]
+		server_obj: Any = server
+		if server_obj is None:
+			server_obj = self
+		elif server_obj:
+			if server_obj not in Settings.servers:
+				raise ValueError("Server label (%s) not found." % server_obj)
+			server_obj = Settings.servers[server_obj]
 		
-		if server and opt in KEYS_SERVER_SET:
+		if server_obj and opt in KEYS_SERVER_SET:
 			value = getattr(self, opt)
 		else:
-			if not server or server is self:
+			if not server_obj or server_obj is self:
 				if opt not in KEYS_MAIN_SET:
 					raise ValueError("Settings has no option: (%s) to get." % opt)
 				else:
@@ -275,7 +290,8 @@ class Server(BaseServer):
 			return deepcopy(value) if inreactor else blockingCallFromThread(reactor, deepcopy, value)
 		else: return value
 	
-	def setOption(self, opt, value, module=None, channel=None, server=None):
+	def setOption(self, opt: str, value: Any, module: str | None=None,
+		channel: str | bool | None=None, server: str | bool | None=None) -> None:
 		if opt in KEYS_DENY: raise ValueError("Access denied. (%s)" % opt)
 		if type(value) in TYPE_COPY: value = deepcopy(value) # copy value if compound datatype
 		
@@ -283,7 +299,7 @@ class Server(BaseServer):
 			if server or server is None:
 				# try searching for option in a server object
 				if not server is None:
-					try: moduleopts = Settings.servers[server].moduleopts
+					try: moduleopts = Settings.servers[cast(str, server)].moduleopts
 					except KeyError:
 						raise ValueError("Server (%s) not found" % server)
 				else:
@@ -303,17 +319,18 @@ class Server(BaseServer):
 			else:
 				mod[opt] = value
 		else:
-			if server is None:
-				server = self
-			elif server:
-				if not server in Settings.servers:
-					raise ValueError("Server label (%s) not found." % server)
-				server = Settings.servers[server]
+			server_obj: Any = server
+			if server_obj is None:
+				server_obj = self
+			elif server_obj:
+				if server_obj not in Settings.servers:
+					raise ValueError("Server label (%s) not found." % server_obj)
+				server_obj = Settings.servers[server_obj]
 			
-			if server and opt in KEYS_SERVER_SET:
+			if server_obj and opt in KEYS_SERVER_SET:
 				setattr(self, opt, value)
 			else:
-				if not server or server is self:
+				if not server_obj or server_obj is self:
 					if opt not in KEYS_MAIN_SET:
 						raise ValueError("Settings has no option: (%s) to set." % opt)
 					else:
@@ -323,15 +340,19 @@ class Server(BaseServer):
 					# instead of falling back to KEYS_MAIN, raise error
 					raise ValueError("Server settings has no option: (%s) to set." % opt)
 				
-	def getModule(self, modname):
+	def getModule(self, modname: str) -> ModuleType:
 		if not self.isModuleAvailable(modname):
 			raise ConfigException("Module (%s) is not available." % modname)
-		return self.dispatcher.get_module(modname)
+		assert self.dispatcher is not None
+		module = self.dispatcher.get_module(modname)
+		assert module is not None
+		return module
 
-	def isModuleAvailable(self, modname):
+	def isModuleAvailable(self, modname: str) -> bool:
 		return self.dispatcher is not None and self.dispatcher.is_module_loaded(modname)
 		
-	def getAddon(self, addonname):
+	def getAddon(self, addonname: str) -> Callable[..., Any]:
+		assert self.addons is not None
 		try:
 			modname, f = self.addons._getModuleAddon(addonname)
 		except KeyError:
@@ -343,52 +364,56 @@ class Server(BaseServer):
 	
 
 class SettingsBase:
-	nick = "BurlyBot"
-	altnicks = None # []
-	nicksuffix = "_"
-	nickservpass = None
-	commandprefix = "!"
-	datadir = "data"
-	debug = False
-	datafile = "BurlyBot.db"
-	enablestate = False
-	encoding = "utf-8"
-	cert = None
-	verify = False
-	console = True
-	logfile = None
-	modules = None # OrderedSet(["core"])
-	_admins = None
-	servers = None # {}
-	botdir = None
-	configfile = None
-	moduleopts = None # {}
-	databasemanager = None
+	nick: str = "BurlyBot"
+	altnicks: list[str] = []
+	nicksuffix: str = "_"
+	nickservpass: str | None = None
+	commandprefix: str = "!"
+	datadir: str = "data"
+	debug: int = 0
+	datafile: str = "BurlyBot.db"
+	enablestate: bool = False
+	encoding: str = "utf-8"
+	cert: str | None = None
+	verify: bool = False
+	console: bool = True
+	logfile: str | None = None
+	modules: OrderedSet[str] = OrderedSet(["core"])
+	_admins: list[str] = []
+	servers: dict[str, Server] = {}
+	botdir: str | None = None
+	configfile: str | None = None
+	moduleopts: dict[str, dict[str, Any]] = {}
+	databasemanager: DBManager | None = None
 	
 	@property
-	def admins(self):
+	def admins(self) -> list[str]:
 		return self._admins
 	
 	@admins.setter
-	def admins(self, value):
+	def admins(self, value: Iterable[str] | property) -> None:
 		# When we reset defaults, we grab values from SettingsBase... But 'admins' tries to get the property.
 		if isinstance(value, property): return # TODO: Don't know how to handle this more cleanly
 		self._admins = [x.lower() for x in value]
 	
 	#TODO: not sure if the following is needed or not. Class.dict seems to behave strangely
-	def _setDefaults(self):
+	def _setDefaults(self) -> None:
 		self.altnicks = []
 		self.modules = OrderedSet(["core"])
 		self._admins = []
 		self.moduleopts = {}
 	
-	def __init__(self):
-		self.servers = {}
+	def __init__(self) -> None:
+		self.servers: dict[str, Server] = {}
+		self.newservers: list[Server] = []
+		self.oldservers: set[str] = set()
 		self.module_registry = ModuleRegistry()
 		self._setDefaults()
 
-	def _loadsettings(self):
+	def _loadsettings(self) -> None:
 		# TODO: need some exception handling for loading JSON
+		if self.configfile is None:
+			raise ConfigException("No configuration file specified.")
 		try:
 			with open(self.configfile, encoding="utf-8") as config_file:
 				newsets = load(config_file)
@@ -397,7 +422,7 @@ class SettingsBase:
 				"\nTry http://jsonlint.com/ and make sure no trailing commas." % (self.configfile, e))
 		
 		self.newservers = newservers = []
-		self.oldservers = oldservers = []
+		self.oldservers = oldservers = set()
 		# Only look for options we care about
 		for opt in KEYS_MAIN:
 			if opt in newsets:
@@ -436,40 +461,49 @@ class SettingsBase:
 		self.newservers = newservers
 		self.oldservers = oldservers
 		
-	def _connect(self, servers):
+	def _connect(self, servers: Iterable[Server]) -> None:
+		manager = self.databasemanager
+		if manager is None:
+			raise RuntimeError("Database manager has not been initialized.")
 		for server in servers:
 			if server.ssl:
 				try: reactor.connectSSL(server.host, server.port, server._factory, createCertOptions(server))
 				except Exception as e:
 					print("SSL Error: Cannot connect to '%s' (%s)" % (server.serverlabel, e))
-					self.databasemanager.delServer(server.serverlabel)
+					manager.delServer(server.serverlabel)
 			else:
 				reactor.connectTCP(server.host, server.port, server._factory)
 			
-	def createDatabases(self, servers):
+	def createDatabases(self, servers: Iterable[Server]) -> None:
+		manager = self.databasemanager
+		if manager is None:
+			raise RuntimeError("Database manager has not been initialized.")
 		for server in servers:
-			self.databasemanager.addServer(server.serverlabel, server.datafile)
+			manager.addServer(server.serverlabel, server.datafile)
 			
-	def _disconnect(self, servers):
+	def _disconnect(self, servers: Iterable[str]) -> None:
+		manager = self.databasemanager
+		if manager is None:
+			raise RuntimeError("Database manager has not been initialized.")
 		#NOTE: this is serverlabel
-		for server in servers:
-			print("DISCONNECTING: %s" % server)
-			server = self.servers[server]
+		for server_label in servers:
+			print("DISCONNECTING: %s" % server_label)
+			server = self.servers[server_label]
 			if server.container._botinst:
 				server.container._botinst.quit()
 			server._factory.stopTrying()
 			#callLater delserver so that just incase some modules catch quit or error event, and use DB for it
 			# May cause race condition when connecting to new server that uses same name but different DBfile
 			# Hope someone doesn't do that...
-			reactor.callLater(1.0, self.databasemanager.delServer, server.serverlabel)
+			reactor.callLater(1.0, manager.delServer, server.serverlabel)
 			#remove oldservers from servers dict
 			try: del self.servers[server.serverlabel]
 			except KeyError: print("Warning: tried to remove server that didn't exist")
 		
-	def load(self):
+	def load(self) -> None:
 		self.reloadStage1()
 	
-	def reloadStage1(self):
+	def reloadStage1(self) -> None:
 		#restore "defaults"
 		for key in KEYS_MAIN:
 			if key == "servers": continue #never nuke servers
@@ -480,7 +514,7 @@ class SettingsBase:
 			#attempt to load user options
 			self._loadsettings()
 	
-	def reloadStage2(self):
+	def reloadStage2(self) -> None:
 		#disconnect before reloading dispatchers
 		self._disconnect(self.oldservers)
 		#create databases so init() can do database things.
@@ -488,16 +522,19 @@ class SettingsBase:
 		self.module_registry.reload_servers(self.servers.values())
 		# connect after load dispatchers
 		self._connect(self.newservers)
-		self.oldservers = self.newservers = []
+		self.oldservers = set()
+		self.newservers = []
 		
 	# TODO: when twisted supports good logger, consider allowing per-server logfile
 	# NOTE: logfile is not chat logging
 	# This must be called only once
-	def initialize(self, logger=None):
+	def initialize(self, logger: Any=None) -> None:
 		#setup log options
 		if not self.console:
 			logger.stop()
 		if self.logfile:
+			if self.botdir is None:
+				raise RuntimeError("Bot directory has not been configured.")
 			log.startLogging(open(join(self.botdir, self.logfile), 'a'), setStdout=False)
 		
 		# setup global database and databasemanager
@@ -507,7 +544,7 @@ class SettingsBase:
 		# TODO: figure out if actually need this, and what SQLite transaction/journaling mode we should be using
 		Timers._addTimer("_dbcommit", 60*60, self.databasemanager.dbcommit, reps=-1) #every hour (60*60)
 	
-	def saveOptions(self):
+	def saveOptions(self) -> None:
 		d = OrderedDict()
 		for key in KEYS_MAIN:
 			if key == "servers": continue
@@ -520,14 +557,19 @@ class SettingsBase:
 			EXAMPLE_SERVER = DummyServer(EXAMPLE_OPTS)
 			EXAMPLE_SERVER2 = DummyServer(EXAMPLE_OPTS2)
 			d["servers"] = [EXAMPLE_SERVER._getDict(), EXAMPLE_SERVER2._getDict()]
+		if self.configfile is None:
+			raise ConfigException("No configuration file specified.")
 		with open(self.configfile, "w", encoding="utf-8") as config_file:
 			dump(d, config_file, indent=4, separators=(',', ': '), cls=ConfigEncoder)
 	
-	def shutdown(self, relaunch=False):
+	def shutdown(self, relaunch: bool=False) -> None:
+		manager = self.databasemanager
+		if manager is None:
+			raise RuntimeError("Database manager has not been initialized.")
 		self._disconnect(list(self.servers.keys()))
 		#stop timers or just not care...
 		Timers._stopall()
-		reactor.callLater(2.0, self.databasemanager.shutdown) # to give time for individual shutdown
+		reactor.callLater(2.0, manager.shutdown) # to give time for individual shutdown
 		self.module_registry.unload()
 		reactor.callLater(2.5, reactor.stop) # to give time for individual shutdown
 		# TODO: make sure this works properly
@@ -535,24 +577,27 @@ class SettingsBase:
 		if relaunch:
 			register(relaunchfunc, executable, argv)
 			
-	def hardshutdown(self):
+	def hardshutdown(self) -> None:
+		manager = self.databasemanager
+		if manager is None:
+			raise RuntimeError("Database manager has not been initialized.")
 		Timers._stopall()
 		self.module_registry.unload()
-		self.databasemanager.shutdown()
+		manager.shutdown()
 
-def relaunchfunc(pythonbin, args):
+def relaunchfunc(pythonbin: str, args: list[str]) -> None:
 	args.insert(0, pythonbin)
 	execv(pythonbin, args)
 
 class ConfigEncoder(JSONEncoder):
-	def default(self, obj):
+	def default(self, obj: Any) -> Any:
 		if isinstance(obj, set):
 			return list(obj)
 		elif isinstance(obj, MutableSet):
 			return list(obj)
 		return JSONEncoder.default(self, obj)
 
-def createCertOptions(server):
+def createCertOptions(server: Server) -> CertificateOptions:
 	pk = None
 	cert = None
 	if server.cert:

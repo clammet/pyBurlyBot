@@ -1,0 +1,1 @@
+Do not implement any compatibility with older python. Target latest python only.

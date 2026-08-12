@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 from util import Mapping, commandSplit, TimeoutException
 from util.irctools import escape_control_codes as esc, AAA
 from twisted.words.protocols.irc import CHANNEL_PREFIXES
@@ -26,7 +28,7 @@ PRIVMSG_ERRORS = {'ERR_NORECIPIENT', 'ERR_NOTEXTTOSEND', 'ERR_CANNOTSENDTOCHAN',
 			'ERR_NOTOPLEVEL', 'ERR_WILDTOPLEVEL', 'ERR_TOOMANYTARGETS', 'ERR_NOSUCHNICK'}
 
 
-def admin_join(event, bot):
+def admin_join(event: Event, bot: BotLike) -> None:
 	channel, key = commandSplit(event.argument)
 	if not channel:
 		return bot.say(".%s #channel [key]" % event.command)
@@ -54,7 +56,7 @@ def admin_join(event, bot):
 		bot.say("Failed to join (%s) in (%d second) timeout." % (channel, WAIT_TIMEOUT))
 
 
-def admin_part(event, bot):
+def admin_part(event: Event, bot: BotLike) -> None:
 	channel, reason = commandSplit(event.argument)
 
 	if not channel:
@@ -83,7 +85,7 @@ def admin_part(event, bot):
 		bot.say("Failed to part (%s) in (%d second) timeout." % (channel, WAIT_TIMEOUT))
 
 
-def admin_kick(event, bot):
+def admin_kick(event: Event, bot: BotLike) -> None:
 	channel, user = commandSplit(event.argument)
 	user, reason = commandSplit(user)
 
@@ -111,7 +113,7 @@ def admin_kick(event, bot):
 		bot.say("Failed to kick (%s) in (%d second) timeout." % (channel, WAIT_TIMEOUT))
 
 
-def send_msg_and_wait(bot, chan_or_user, msg):
+def send_msg_and_wait(bot: BotLike, chan_or_user: str, msg: str) -> bool | None:
 	"""
 	Helper method to send a PRIVMSG and check for errors/success
 	"""
@@ -126,9 +128,10 @@ def send_msg_and_wait(bot, chan_or_user, msg):
 	except TimeoutException:
 		# Assume success
 		return True
+	return True
 
 
-def admin_msg(event, bot):
+def admin_msg(event: Event, bot: BotLike) -> None:
 	msg = event.argument
 
 	if event.isPM():
@@ -140,11 +143,13 @@ def admin_msg(event, bot):
 	else:
 		chan_or_user = event.target
 
+	if chan_or_user is None:
+		return bot.say("No message target available.")
 	if send_msg_and_wait(bot, chan_or_user, msg) and event.isPM():
 		bot.say("Successfully sent message to (%s)." % chan_or_user)
 
 
-def admin_action(event, bot):
+def admin_action(event: Event, bot: BotLike) -> None:
 	msg = event.argument
 
 	if event.isPM():
@@ -156,11 +161,13 @@ def admin_action(event, bot):
 	else:
 		chan_or_user = event.target
 
+	if chan_or_user is None:
+		return bot.say("No action target available.")
 	if send_msg_and_wait(bot, chan_or_user, "\x01ACTION %s\x01" % msg) and event.isPM():
 		bot.say("Successfully sent action to (%s)." % chan_or_user)
 
 
-def admin_rage(event, bot):
+def admin_rage(event: Event, bot: BotLike) -> None:
 	msg = event.argument
 
 	if event.isPM():
@@ -173,6 +180,8 @@ def admin_rage(event, bot):
 	if not msg:
 		msg = 'A' * randint(200, 400)
 
+	if chan_or_user is None:
+		return bot.say("No message target available.")
 	if send_msg_and_wait(bot, chan_or_user, AAA(msg)) and event.isPM():
 		bot.say("Successfully sent FURIOUS_MESSAGE to (%s)." % chan_or_user)
 

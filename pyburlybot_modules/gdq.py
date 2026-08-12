@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from util.event import Event
+from util.types import BotLike
 # GDQ
 
 from util import Mapping, argumentSplit
@@ -18,7 +21,7 @@ OPTIONS = {
 GDQ_URL = "https://gamesdonequick.com"
 TWITCH_API_URL = "https://api.twitch.tv/kraken/channels/gamesdonequick"
 RPL = "Current: \x02%s\x02 (%s) Upcoming: {0} \x0f| %s %s"
-TWITCH_CLIENTID = None
+TWITCH_CLIENTID = ""
 TIMER_NAME = 'gdq_timer'
 LOOP_INTERVAL = 120.0 # Seconds
 REPEAT_NOTIFY_TIME = 60*30 # 30mins between same game notifies
@@ -26,10 +29,10 @@ R_SCHEDULE_SUBLINK = re_compile(r'href="?(/?schedule/[^"]+)')
 
 FORMAT = "{0}, GAME ({1}) IS AVAILABLE."
 
-def _searchGame(data, title):
+def _searchGame(data: list[list[str]], title: str) -> tuple[list[str], str | None]:
 	# try searching for incorrect name in timetable take 3:
 	found = False
-	upcoming = []
+	upcoming: list[str] = []
 	eta = None
 	# Join every 2 entries
 	for gdata, etadata in zip(data[0::2], data[1::2]):
@@ -43,7 +46,7 @@ def _searchGame(data, title):
 			eta = etadata[0].strip()
 	return upcoming, eta
 
-def modifyNameIter(gamename):
+def modifyNameIter(gamename: str) -> Iterator[str]:
 	yield gamename
 	if ":" in gamename:
 		for x in (gamename.replace(":", ""), gamename.split(":")[0]):
@@ -58,7 +61,7 @@ def modifyNameIter(gamename):
 	if "the" in gamename:
 		yield gamename.replace("the ", "")
 
-def gdq(event, bot):
+def gdq(event: Event, bot: BotLike) -> None:
 	""" gdq [gamename,~list,~del gamename]. Show gdq info. If gamename is provided, alert will be given when gamename is seen.
 		gamename is searched in the time of the stream game, so "kirby" is possible for all kirby games."""
 	gamename = argumentSplit(event.argument, 1)[0]
@@ -76,7 +79,7 @@ def gdq(event, bot):
 				(event.target, event.nick, gamename, 0))
 		bot.say("I'll let you know when (%s) is on." % gamename)
 		return
-	upcoming = []
+	upcoming: list[str] = []
 	o = build_opener()
 	o.addheaders = [('Client-ID', TWITCH_CLIENTID)]
 	f = o.open(TWITCH_API_URL)
@@ -106,7 +109,7 @@ def gdq(event, bot):
 		for row in rows:
 			data.append([c.text_content() for c in row.getchildren()])
 		# find current
-		upcoming = None
+		upcoming = []
 		# try searching for incorrect name in timetable because bads...
 		for igametitle in modifyNameIter(ngame):
 			upcoming, eta = _searchGame(data, igametitle)
@@ -124,7 +127,7 @@ def gdq(event, bot):
 	bot.say(RPL % (game, eta, "http://www.twitch.tv/gamesdonequick/popout", "https://gamesdonequick.com/schedule"),
 		strins=", ".join(upcoming))
 
-def check_games_callback(bot=None):
+def check_games_callback(bot: BotLike) -> None:
 	current_time = timegm(gmtime())
 	timecheck = current_time - REPEAT_NOTIFY_TIME
 	# only notify user 30mins after last notified of same game
@@ -151,14 +154,14 @@ def check_games_callback(bot=None):
 			bot.sendmsg(alert['source'], FORMAT, strins=[alert['source_name'],alert['game_text']])
 			bot.dbQuery('''UPDATE gdq_alert SET notified_time=?	WHERE id=?;''', (current_time,alert['id']))
 
-def setup_timer(bot):
+def setup_timer(bot: BotLike) -> None:
 	Timers.addtimer(TIMER_NAME, LOOP_INTERVAL, check_games_callback, reps=-1, startnow=False, bot=bot)
 
-def unload():
+def unload() -> None:
 	#Timers.deltimer(TIMER_NAME)
 	pass
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global TWITCH_CLIENTID # oh nooooooooooooooooo
 	TWITCH_CLIENTID = bot.getOption("TWITCH_CLIENTID", module="gdq")
 

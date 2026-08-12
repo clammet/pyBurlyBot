@@ -1,3 +1,5 @@
+from collections.abc import Callable, Sequence
+from typing import Any
 from threading import Thread
 from queue import Queue
 from traceback import print_exc
@@ -5,6 +7,10 @@ from traceback import print_exc
 from os.path import exists, join, isfile
 from os import mkdir
 import sqlite3
+
+from .types import DatabaseParams
+
+Query = tuple[str, DatabaseParams]
 
 fetchone = sqlite3.Cursor.fetchone
 fetchall = sqlite3.Cursor.fetchall
@@ -15,9 +21,9 @@ fetchmany = sqlite3.Cursor.fetchmany
 ### To use a specific database for a server you must configure that server to have a unique datafile.
 
 class DBManager:
-	def __init__(self, datadir, datafile):
-		self.serverDBMap = {}
-		self.fileDBMap = {}
+	def __init__(self, datadir: str, datafile: str) -> None:
+		self.serverDBMap: dict[str, DBaccess] = {}
+		self.fileDBMap: dict[str, DBaccess] = {}
 		self.mainDB = DBaccess(datadir, datafile)
 		self.datadir = datadir
 		self.datafile = datafile
@@ -26,15 +32,16 @@ class DBManager:
 		self.mainDB.start()
 		self.running = True
 		
-	def query(self, serverlabel, q, params=(), func=None):
+	def query(self, serverlabel: str, q: str, params: DatabaseParams=(),
+		func: Callable[[sqlite3.Cursor], Any] | None=None) -> Any:
 		db = self.managerThread.call(self._getDB, serverlabel)
 		return db.query(q, params, func)
 	
-	def batch(self, serverlabel, qs):
+	def batch(self, serverlabel: str, qs: Sequence[Query]) -> list[list[sqlite3.Row]]:
 		db = self.managerThread.call(self._getDB, serverlabel)
 		return db.batch(qs)
 		
-	def _addServer(self, serverlabel, datafile):
+	def _addServer(self, serverlabel: str, datafile: str) -> None:
 		if not datafile == self.datafile:
 			if serverlabel in self.serverDBMap:
 				#determine if we need to shutdown DB and restart with different file
@@ -54,10 +61,10 @@ class DBManager:
 				self.fileDBMap[datafile] = db
 				db.start()
 	
-	def addServer(self, serverlabel, datafile):
+	def addServer(self, serverlabel: str, datafile: str) -> None:
 		self.managerThread.call(self._addServer, serverlabel, datafile)
 		
-	def _delServer(self, serverlabel):
+	def _delServer(self, serverlabel: str) -> None:
 		if serverlabel in self.serverDBMap:
 			db = self.serverDBMap[serverlabel]
 			if db.datafile != self.datafile:
@@ -67,18 +74,18 @@ class DBManager:
 					del self.fileDBMap[db.datafile]
 				del self.serverDBMap[serverlabel]
 	
-	def delServer(self, serverlabel):
+	def delServer(self, serverlabel: str) -> None:
 		self.managerThread.call(self._delServer, serverlabel)
 	
-	def _getDB(self, serverlabel):
+	def _getDB(self, serverlabel: str) -> DBaccess:
 		return self.serverDBMap.get(serverlabel, self.mainDB)
 		
-	def _shutdown(self):
+	def _shutdown(self) -> None:
 		for db in self.serverDBMap.values():
 			db.stop()
 		self.mainDB.stop()
 	
-	def shutdown(self):
+	def shutdown(self) -> None:
 		# TODO: probably lock on this so that if you CTRL+C while updaterelaunching 
 		# 	you won't run in to race condition if CTRL+C while shutting down threads
 		if self.running:
@@ -87,27 +94,27 @@ class DBManager:
 			self.running = False # to make it easier to shutdown from multiple pathways
 		
 	#DB helper for easy module use:
-	def dbCheckCreateTable(self, serverlabel, tablename, createstmt):
+	def dbCheckCreateTable(self, serverlabel: str, tablename: str, createstmt: str) -> bool:
 		if not self.query(serverlabel, '''SELECT name FROM sqlite_master WHERE name=?;''', (tablename,)):
 			self.query(serverlabel, createstmt)
 		return True
 		
-	def _dbcommit(self):
+	def _dbcommit(self) -> None:
 		for db in self.serverDBMap.values():
 			db.commit()
 		self.mainDB.commit()
 		
-	def dbcommit(self):
+	def dbcommit(self) -> None:
 		self.managerThread.call(self._dbcommit)
 			
 	
 class ManagerThread(Thread):
-	def __init__(self):
+	def __init__(self) -> None:
 		super().__init__()
-		self.callQueue = Queue()
+		self.callQueue: Queue[Any] = Queue()
 		self.name = "ManagerThread"
 	
-	def run(self):
+	def run(self) -> None:
 		while True:
 			c = self.callQueue.get()
 			if c == "QUIT":
@@ -118,15 +125,15 @@ class ManagerThread(Thread):
 				ret = e
 			q.put(ret)
 			
-	def call(self, f, *args, **kwargs):
-		q = Queue()
+	def call(self, f: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+		q: Queue[Any] = Queue()
 		self.callQueue.put((q, f, args, kwargs))
 		ret = q.get()
 		if isinstance(ret, Exception):
 			raise ret
 		return ret
 		
-	def stop(self):
+	def stop(self) -> None:
 		self.callQueue.put("QUIT")
 		self.join()
 
@@ -134,7 +141,7 @@ class ManagerThread(Thread):
 # how should we deal with commits and stuff, can you even commit with execute? 
 # You can if you change transactional mode. What transactional mode do we want?
 class DBaccess(Thread):
-	def __init__(self, datadir, datafile):
+	def __init__(self, datadir: str, datafile: str) -> None:
 		super().__init__()
 		self.name = "DBaccessThread(%s)" % datafile
 		self.datafile = datafile
@@ -143,13 +150,13 @@ class DBaccess(Thread):
 		elif isfile(datadir):
 			raise OSError("datadir should not be file")
 		self.f = join(datadir, self.datafile)
-		self.qq = Queue() # QueryQueue, QQ
+		self.qq: Queue[Any] = Queue() # QueryQueue, QQ
 		self.servers = 1
 		#just to see if we can open the file/db
 		dbcon = sqlite3.connect(self.f)
 		dbcon.close()
 		
-	def run(self):
+	def run(self) -> None:
 		dbcon = sqlite3.connect(self.f)
 		dbcon.row_factory = sqlite3.Row
 		
@@ -183,20 +190,21 @@ class DBaccess(Thread):
 		dbcon.commit()
 		dbcon.close()
 		
-	def query(self, q, params=(), func=None):
+	def query(self, q: str, params: DatabaseParams=(),
+		func: Callable[[sqlite3.Cursor], Any] | None=None) -> Any:
 		if not self.is_alive():
 			raise RuntimeError("Attempted query on non running (%s)" % self.name)
-		resultq = Queue()
+		resultq: Queue[Any] = Queue()
 		self.qq.put((q, params, func, resultq))
 		result = resultq.get()
 		if isinstance(result, Exception):
 			raise result
 		return result
 	
-	def batch(self, qs):
+	def batch(self, qs: Sequence[Query]) -> list[list[sqlite3.Row]]:
 		if not self.is_alive():
 			raise RuntimeError("Attempted query on non running (%s)" % self.name)
-		resultq = Queue()
+		resultq: Queue[Any] = Queue()
 		self.qq.put((qs, resultq))
 		results = []
 		# get all results. probably not needed.
@@ -209,10 +217,10 @@ class DBaccess(Thread):
 			results.append(result)
 		return results
 		
-	def stop(self):
+	def stop(self) -> None:
 		self.qq.put("STOP")
 		print("STOPPING %s" % self.name)
 		self.join()
 		
-	def commit(self):
+	def commit(self) -> None:
 		self.qq.put("COMMIT")

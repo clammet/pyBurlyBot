@@ -1,21 +1,24 @@
+from collections.abc import Iterable
 from importlib import import_module, invalidate_caches
 from sys import modules as system_modules, stderr
 from traceback import format_exc, print_exc
+from types import ModuleType
+from typing import Any
 
 
 class ModuleRegistry:
 	"""Own imported plugins and their per-server activation state."""
 
-	def __init__(self, package="pyburlybot_modules"):
+	def __init__(self, package: str="pyburlybot_modules") -> None:
 		self.package = package
-		self.imported = {}
-		self.import_errors = {}
-		self.active = {}
-		self.activation_errors = {}
-		self._activated = set()
-		self._unloaded = set()
+		self.imported: dict[str, ModuleType] = {}
+		self.import_errors: dict[str, str] = {}
+		self.active: dict[str, dict[str, ModuleType]] = {}
+		self.activation_errors: dict[str, dict[str, str]] = {}
+		self._activated: set[str] = set()
+		self._unloaded: set[str] = set()
 
-	def import_plugin(self, name):
+	def import_plugin(self, name: str) -> ModuleType | None:
 		if name in self.imported:
 			return self.imported[name]
 		if name in self.import_errors:
@@ -34,21 +37,21 @@ class ModuleRegistry:
 		self._unloaded.discard(name)
 		return module
 
-	def active_modules(self, server):
+	def active_modules(self, server: str) -> dict[str, ModuleType]:
 		return self.active.setdefault(server, {})
 
-	def clear_server(self, server):
+	def clear_server(self, server: str) -> None:
 		self.active[server] = {}
 		self.activation_errors[server] = {}
 
-	def activate(self, server, name, module):
+	def activate(self, server: str, name: str, module: ModuleType) -> None:
 		self.active_modules(server)[name] = module
 		self._activated.add(name)
 
-	def record_activation_error(self, server, name, reason):
+	def record_activation_error(self, server: str, name: str, reason: str) -> None:
 		self.activation_errors.setdefault(server, {}).setdefault(name, reason)
 
-	def unload(self):
+	def unload(self) -> None:
 		for name, module in self.imported.items():
 			if name not in self._activated or name in self._unloaded:
 				continue
@@ -62,7 +65,7 @@ class ModuleRegistry:
 					print_exc()
 			self._unloaded.add(name)
 
-	def reset(self):
+	def reset(self) -> None:
 		"""Unload plugins and remove package children so source is re-imported."""
 		self.unload()
 		prefix = self.package + "."
@@ -82,13 +85,13 @@ class ModuleRegistry:
 		self._activated.clear()
 		self._unloaded.clear()
 
-	def reload_servers(self, servers):
+	def reload_servers(self, servers: Iterable[Any]) -> None:
 		self.reset()
 		for server in servers:
 			server.reload_modules(self)
 		self.show_load_errors()
 
-	def show_load_errors(self):
+	def show_load_errors(self) -> None:
 		if self.import_errors:
 			print("\nWARNING: MODULE IMPORT(S) FAILED:", file=stderr)
 			for module, reason in self.import_errors.items():

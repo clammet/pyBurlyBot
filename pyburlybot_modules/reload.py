@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 # reload module
 
 from util import Mapping
@@ -11,12 +13,12 @@ from twisted.internet.threads import blockingCallFromThread
 ###
 
 
-def _reallyReload():
+def _reallyReload() -> None:
 	Settings.reloadStage1()
 	Settings.reloadStage2()
 
 
-def admin_reload_bot(event, bot):
+def admin_reload_bot(event: Event, bot: BotLike) -> None:
 	#reload settings, important to do only from within reactor
 	#also refresh dispatchers
 	blockingCallFromThread(reactor, _reallyReload)

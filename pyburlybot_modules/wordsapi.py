@@ -1,3 +1,5 @@
+from typing import Any
+from util.types import BotLike
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
@@ -24,7 +26,7 @@ SAURUS_URL = "https://dictionary.cambridge.org/api/v1/%s/topics/topics/%s/"
 
 API_KEY = None
 
-def spell_check(query, skipSearch=False):
+def spell_check(query: str, skipSearch: bool=False) -> list[str] | None:
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for wordsapi. Reload after setting.")
 	if not skipSearch and word_search(query):
@@ -34,7 +36,7 @@ def spell_check(query, skipSearch=False):
 		r.add_header("accessKey", API_KEY)
 		return load(urlopen(r))['suggestions']
 
-def word_search(query):
+def word_search(query: str) -> list[Any] | None:
 	""" word helper. Returns a dictionary entry."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for wordsapi. Reload after setting.")
@@ -90,7 +92,7 @@ def word_search(query):
 	else:
 		return None
 
-def word_synonyms(query):
+def word_synonyms(query: str) -> list[str] | None:
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for wordsapi. Reload after setting.")
 	
@@ -117,7 +119,7 @@ def word_synonyms(query):
 				syns.append(entry['entryId'])
 	return syns
 	
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global API_KEY # oh nooooooooooooooooo
 	API_KEY = bot.getOption("API_KEY", module="wordsapi")
 	return True

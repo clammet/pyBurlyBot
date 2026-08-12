@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 # wikipedia module. Built using 
 # https://github.com/goldsmith/Wikipedia
 
@@ -12,7 +14,7 @@ from random import choice
 # Random disambiguous page: (SP: ?) Title - body <URL>
 RESULT_RPL = "%s{0} - {1} <%s>"
 
-def wiki(event, bot):
+def wiki(event: Event, bot: BotLike) -> None:
 	""" wiki \x02searchterm\x02. Will search Wikipedia for \x02searchterm\x02. """
 	if not event.argument: return bot.say(functionHelp(wiki))
 	result = search(event.argument, results=1, suggestion=True)

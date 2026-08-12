@@ -1,9 +1,11 @@
+from util.event import Event
+from util.types import BotLike
 # basic autoop/voice/hop module
 
 from util import Mapping, match_hostmask
 from util.settings import ConfigException
 
-OPTIONS = {
+OPTIONS: dict[str, tuple[type, str, list[str]]] = {
 	"autoop" : (list, "List of hostmasks to autoop on. Use lowercase.", []),
 	"autovoice" : (list, "List of hostmasks to autovoice on. Use lowercase.", []),
 	"autohalf" : (list, "List of hostmasks to autohalf op on. Use lowercase.", []),
@@ -11,9 +13,11 @@ OPTIONS = {
 
 # TODO: Consider making custom IRCClient.mode function that can do this in one call
 #		Something like takes user argument as list.
-def dostatus(event, bot):
+def dostatus(event: Event, bot: BotLike) -> None:
 	target = event.target
 	hostmask = event.hostmask
+	if target is None or hostmask is None:
+		return
 	chan = bot.state.channels.get(target)
 	if not chan or (bot.nickname not in chan.ops): return
 	modes = []
@@ -34,7 +38,7 @@ def dostatus(event, bot):
 	for mode in modes:
 		bot.mode(target, True, mode, user=event.nick)
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	if not bot.getOption("enablestate"):
 		raise ConfigException('autjoinstatus module requires "enablestate" option')
 	return True

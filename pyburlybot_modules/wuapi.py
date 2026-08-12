@@ -1,3 +1,5 @@
+from typing import Any
+from util.types import BotLike
 # Weather Undergroun api module used by weather and location
 # http://www.wunderground.com/
 # require APIkey module option
@@ -20,7 +22,7 @@ LOC_URL = "http://autocomplete.wunderground.com/aq?%s"
 API_KEY = None
 CSE_ID = None
 
-def lookup_location(query):
+def lookup_location(query: str) -> tuple[str, str, str] | None:
 	""" helper to ask WU for location data. Returns name, lat, lon"""
 	f = urlopen(LOC_URL % (urlencode({"query" : query})))
 	locdata = load(f)
@@ -36,7 +38,7 @@ def lookup_location(query):
 	else:
 		raise RuntimeError("Error (%s): %s" % (f.getcode(), locdata.replace("\n", " ")))
 
-def get_weather(lat, lon):
+def get_weather(lat: float | str, lon: float | str) -> dict[str, Any] | None:
 	""" helper to ask WU for current weather. Includes forecast also!"""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for wuapi. Reload after setting.")
@@ -51,7 +53,7 @@ def get_weather(lat, lon):
 		raise RuntimeError("Error (%s): %s" % (f.getcode(), weather_data.replace("\n", " ")))
 	
 # Not used for weather because doesn't contain "display_location"
-def get_forecast(lat, lon):
+def get_forecast(lat: float | str, lon: float | str) -> dict[str, Any] | None:
 	""" helper to ask WU for forecasted weather."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for wuapi. Reload after setting.")
@@ -67,7 +69,7 @@ def get_forecast(lat, lon):
 		raise RuntimeError("Error (%s): %s" % (f.getcode(), weather_data.replace("\n", " ")))
 	
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global API_KEY # oh nooooooooooooooooo
 	API_KEY = bot.getOption("API_KEY", module="wuapi")
 	return True

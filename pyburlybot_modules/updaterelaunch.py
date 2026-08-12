@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 #updaterelaunch super update reload module
 
 from subprocess import check_output
@@ -25,7 +27,7 @@ OPTIONS = {
 #TODO: This won't really play nice when running multiple bot processes at a time.
 #	After the first bot process updates, the rest will think they are up-to-date.
 #	This could be solved by storing modtimes of modules and core files at launch time and comparing them.
-def update(event, bot):
+def update(event: Event, bot: BotLike) -> None:
 	""" update will check for git update and restart bot if core files need updating. """
 
 	gitpath = bot.getOption("git_path", module="updaterelaunch")
@@ -59,7 +61,7 @@ def update(event, bot):
 		bot.say("Already up-to date.")
 
 
-def local_update(event, bot):
+def local_update(event: Event, bot: BotLike) -> None:
 	if not bot.getOption('debug'):
 		return bot.say('Debug must be enabled for localupdate.')
 	print("RESTARTING BOT")

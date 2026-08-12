@@ -1,3 +1,7 @@
+from typing import Any, TypeAlias
+from util.event import Event
+from util.types import BotLike, DatabaseQuery
+from util.db import Query
 #location
 
 # module stores users locations and can lookup locations
@@ -5,17 +9,20 @@
 from util import Mapping, fetchone
 
 REQUIRES = ("users", "googleapi")
-USERS_MODULE = None
-GAPI_MODULE = None
+USERS_MODULE: Any = None
+GAPI_MODULE: Any = None
 
-def getlocation(qfunc, user):
+Location: TypeAlias = tuple[str, float | str, float | str]
+
+def getlocation(qfunc: DatabaseQuery, user: str) -> Location | None:
 	row = qfunc("""SELECT name, lat, lon FROM location 
 				WHERE id == ?""", (user,), fetchone)
 	if row: return (row['name'], row['lat'], row['lon'])
 	else: return None
 
 # if group, return False,msg if error, True,loc if noerror
-def getLocationWithError(bot, arg, nick, group=False):
+def getLocationWithError(bot: BotLike, arg: str | None, nick: str,
+	group: bool=False) -> Location | tuple[bool, Location | str] | None:
 	target = arg
 	user = None
 	isself = True
@@ -38,23 +45,23 @@ def getLocationWithError(bot, arg, nick, group=False):
 		# lookup location
 		loc = lookup_location(target)
 		if not loc: 
-			if group: False, "I don't know where (%s) is." % target
+			if group: return False, "I don't know where (%s) is." % target
 			else: return bot.say("I don't know where (%s) is." % target)
 	
 	if group: return True, loc
 	return loc
 
-def lookup_location(query):
+def lookup_location(query: str) -> Location | None:
 	return GAPI_MODULE.google_geocode(query)
 	
-def _display_location(bot, user):
+def _display_location(bot: BotLike, user: str) -> None:
 	loc = getlocation(bot.dbQuery, user)
 	if not loc:
 		return bot.say("No location for (%s)." % user)
 	else:
 		return bot.say("%s: %s" % (user, loc[0]))
 
-def location(event, bot):
+def location(event: Event, bot: BotLike) -> None:
 	""" location [username/location]. If no argument is provided current location for user will be returned. 
 	Otherwise a username's location will be returned or a location will be set for requesting user."""
 	target = event.argument
@@ -79,14 +86,14 @@ def location(event, bot):
 				return bot.say("Done. Set location to (%s)." % loc[0])
 			
 # test with user that doesn't have location set
-def _user_rename(old, new):
+def _user_rename(old: str, new: str) -> tuple[Query, ...]:
 	return \
 		("""INSERT OR REPLACE INTO location (id, name, lat, lon) 
 			SELECT ?, name, lat,  lon 
 			FROM location WHERE id == ?""", (new, old)),\
 		("""DELETE FROM location WHERE id == ?""", (old,))
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global USERS_MODULE # oh nooooooooooooooooo
 	global GAPI_MODULE # oh nooooooooooooooooo
 	

@@ -1,3 +1,8 @@
+from datetime import datetime
+from multiprocessing.connection import Connection
+from typing import Any, TypeAlias
+from util.event import Event
+from util.types import BotLike
 #logging indexing thing
 
 from whoosh.index import create_in, open_dir, exists_in
@@ -37,7 +42,7 @@ OPTIONS = {
 	"indexdir" : (str, "Dir where log indexes are stored.", "logindex"),
 }
 REQUIRES = ("users",)
-USERS_MODULE = None
+USERS_MODULE: Any = None
 
 SOURCE_REGEX = re_compile(r".*\bsource:.")
 NICK_REGEX = re_compile(r".*\bnick:(.+)/b")
@@ -54,26 +59,35 @@ STOP = -1
 
 LOG_FORMAT = "<%s> %s" # <nick> msg
 
-def prnt(s):
+LogEntry: TypeAlias = tuple[datetime, str, str | None, str, str]
+SearchResult: TypeAlias = tuple[Any, ...]
+SearchResults: TypeAlias = list[SearchResult] | None
+
+
+def prnt(s: object) -> None:
 	print(s)
 	stdout.flush()
 
 class IndexProcess(Process):
-	def __init__(self, network, indexdir, indexp):
+	def __init__(self, network: str, indexdir: str, indexp: Connection) -> None:
 		super().__init__()
 		self.index_p = indexp
 		self.indexdir = join(indexdir, network)
 		self.network = network
+		self.buffer: deque[LogEntry] = deque(maxlen=BUFFERLINES)
+		self.ix: Any = None
+		self.qp: Any = None
+		self.searcher: Any = None
 		
 	# timestamp, nick, source, msg
-	def _processLog(self, args):
+	def _processLog(self, args: LogEntry) -> None:
 		buffer = self.buffer
 		buffer.append(args)
 		if len(buffer) == BUFFERLINES:
 			self._dumpBuffer(buffer)
 			self.searcher = self.searcher.refresh()
 			
-	def _dumpBuffer(self, buffer):
+	def _dumpBuffer(self, buffer: deque[LogEntry]) -> None:
 		id = self.ix.reader().doc_count()
 		with self.ix.writer() as iw:
 			# dump buffer
@@ -88,7 +102,7 @@ class IndexProcess(Process):
 				else:
 					id += 1
 					
-	def _processRename(self, data):
+	def _processRename(self, data: tuple[str, str]) -> None:
 		old, new = data
 		self._dumpBuffer(self.buffer)
 		self.searcher = self.ix.searcher()
@@ -105,11 +119,13 @@ class IndexProcess(Process):
 		self.searcher = self.ix.searcher()
 
 	# threadident, source, query
-	def _processSearch(self, data):
+	def _processSearch(
+		self, data: tuple[int | None, str, str, int | None, str | None]
+	) -> None:
 		try:
 			threadident, source, query, n, gb = data
 			qp = self.qp.parse(query)
-			results = []
+			results: list[SearchResult] = []
 			if not SOURCE_REGEX.match(query): qp = qp & Term("source", source.lstrip(CHANNEL_PREFIXES).lower())
 			if not gb:
 				for item in self.searcher.search(qp, limit=n, groupedby=gb):
@@ -124,7 +140,7 @@ class IndexProcess(Process):
 		else:
 			self.index_p.send((threadident, results))
 		
-	def run(self):
+	def run(self) -> None:
 		# open index
 		self.buffer = deque(maxlen=BUFFERLINES)
 		if not exists(self.indexdir):
@@ -158,16 +174,16 @@ class IndexProcess(Process):
 		self.ix.close()	
 
 class IndexProxy(Thread):
-	def __init__(self, network, indexdir, cmdprefix):
+	def __init__(self, network: str, indexdir: str, cmdprefix: str) -> None:
 		super().__init__()
 		self.module_p, index_p = Pipe()
 		self.proc = IndexProcess(network, indexdir, index_p)
 		self.proc.start()
-		self.inqueue = Queue() # thread.ident, query/data
-		self.waiting = {} #threadID : queue
+		self.inqueue: Queue[tuple[int, Any]] = Queue() # thread.ident, query/data
+		self.waiting: dict[int | None, Queue[SearchResults]] = {} #threadID : queue
 		self.cmdprefix = cmdprefix
 		
-	def run(self):
+	def run(self) -> None:
 		procpipe = self.module_p
 		while True:
 			# process module calls
@@ -199,34 +215,36 @@ class IndexProxy(Thread):
 		for queue in self.waiting.values():
 			queue.put(None)
 	
-	def search(self, source, query, n, gb=None):
+	def search(self, source: str, query: str, n: int | None,
+		gb: str | None=None) -> SearchResults:
 		""" Will return None if shutdown before response ready."""
-		resultq = Queue()
+		resultq: Queue[SearchResults] = Queue()
 		self.inqueue.put((QUERY, (resultq, current_thread().ident, source, query, n, gb)))
 		return resultq.get()
 		
-	def logmsg(self, *args):
+	def logmsg(self, timestamp: datetime, nick: str, user: str | None,
+		source: str, message: str) -> None:
 		# Ignore all lines that start with commandprefix, but allow things like "... (etc)"
-		if args[-1][0] == self.cmdprefix and args[-1][1] != self.cmdprefix: return
-		self.inqueue.put((LOG, args))
+		if message.startswith(self.cmdprefix) and not message.startswith(self.cmdprefix * 2): return
+		self.inqueue.put((LOG, (timestamp, nick, user, source, message)))
 		
-	def stop(self):
+	def stop(self) -> None:
 		self.inqueue.put((STOP, None))
 	
 	# old, new
-	def rename(self, *args):
+	def rename(self, *args: str) -> None:
 		self.inqueue.put((RENAME, args))
 
-INDEX_PROXIES = {}
+INDEX_PROXIES: dict[str, IndexProxy] = {}
 
-def logmsg(event, bot):
+def logmsg(event: Event, bot: BotLike) -> None:
 	# pass msg on to logger
 	iproxy = INDEX_PROXIES.get(bot.network)
-	if iproxy: 
+	if iproxy and event.nick is not None and event.target is not None and event.msg is not None:
 		user = USERS_MODULE.get_username(bot, event.nick)
 		iproxy.logmsg(event.dtime, event.nick, user, event.target, event.msg)
 
-def logsearch(event, bot):
+def logsearch(event: Event, bot: BotLike) -> None:
 	""" log [n] [searchterm]. Will search logs for searchterm. n is the number of results to display [1-99], 
 	default is 6 and anything over will be output to pastebin.
 	"""
@@ -234,44 +252,52 @@ def logsearch(event, bot):
 	if iproxy:
 		# parse input
 		if not event.argument: return bot.say(functionHelp(logsearch))
-		n, q = argumentSplit(event.argument, 2)
+		first, remainder = argumentSplit(event.argument, 2)
 		try:
-			n = int(n)
-			if n > 99: raise ValueError
-			elif n < 0: raise ValueError
-			if n == 0: n = None
-			q = q
+			if first is None:
+				raise ValueError
+			parsed_limit = int(first)
+			if parsed_limit > 99: raise ValueError
+			elif parsed_limit < 0: raise ValueError
+			limit: int | None = None if parsed_limit == 0 else parsed_limit
+			query = remainder or ""
 		except ValueError:
-			q = event.argument
-			n = 6
-		results = iproxy.search(event.target, q, n)
+			query = event.argument
+			limit = 6
+		source = event.target or event.nick
+		if source is None:
+			return bot.say("No log source available.")
+		results = iproxy.search(source, query, limit)
 		if results is None:
 			bot.say("Log search error happened. Check console.")
 		else:
 			#results.append((item["timestamp"], item["nick"], item["source"], item["content"]))
 			if not results: 
 				return bot.say("No results.")
-			if n > 6 or n is None:
-				title = "Logsearch for (%s)" % q
+			if limit is None or limit > 6:
+				title = "Logsearch for (%s)" % query
 				body = "%s: %%s" % title
-				pastehelper(bot, body, items=(LOG_FORMAT % (x[1], x[3]) for x in results), title=title, altmsg="%s", force=True)
+				pastehelper(bot, body, items=[LOG_FORMAT % (x[1], x[3]) for x in results], title=title, altmsg="%s", force=True)
 			else:
 				bot.say("{0}", fcfs=True, strins=[LOG_FORMAT % (x[1], x[3]) for x in results], joinsep="\x02 | \x02")
 
-def logstats(event, bot):
+def logstats(event: Event, bot: BotLike) -> None:
 	iproxy = INDEX_PROXIES.get(bot.network)
 	if iproxy:
-		results = iproxy.search(event.target, event.argument, None, "user")
+		source = event.target or event.nick
+		if source is None:
+			return bot.say("No log source available.")
+		results = iproxy.search(source, event.argument or "", None, "user")
 		if not results:
 			return bot.say("No results.")
 		results.sort(reverse=True)
 		bot.say("(%s) %s" % (event.argument, ", ".join(("%s: %s" % (nick, count) for count, nick in results))))
 
-def _user_rename(network, old, new):
+def _user_rename(network: str, old: str, new: str) -> None:
 	iproxy = INDEX_PROXIES.get(network)
 	if iproxy: iproxy.rename(old, new)
 	
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global INDEX_PROXIES
 	global USERS_MODULE
 	USERS_MODULE = bot.getModule("users")
@@ -284,7 +310,7 @@ def init(bot):
 		print("WARNING: Already have log proxy for (%s) network." % bot.network)
 	return True
 	
-def unload():
+def unload() -> None:
 	for lproc in INDEX_PROXIES.values():
 		lproc.stop()
 

@@ -1,3 +1,6 @@
+from util.event import Event
+from util.types import BotLike
+from typing import Any
 #calc
 # caved in and used wolframalpha. Didn't want to combine two services for currency and maths(mathjs was super tempting)
 
@@ -21,7 +24,7 @@ EXCLUDE = tuple(zip(("excludepodid",)*len(EXCLUDE_PODS), EXCLUDE_PODS))
 
 POD_PRIORITY = { 'DecimalApproximation' : 0, 'Result' : 1, 'VisualRepresentation' : 100 }
 
-def calc(event, bot):
+def calc(event: Event, bot: BotLike) -> None:
 	""" calc calcquery. Will use WolframAlpha to calc calcquery."""
 	if not event.argument: return bot.say(functionHelp(calc))
 	s = (("input", event.argument), ("appid", API_KEY), ("reinterpret", "true"),
@@ -38,7 +41,7 @@ def calc(event, bot):
 		ievent, root = next(context)
 		
 		input = None
-		results = []
+		results: list[Any] = []
 		pod = None
 		priority = 50
 		for ievent, elem in context:
@@ -75,7 +78,7 @@ def calc(event, bot):
 	else:
 		bot.say("Dunno.")
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global API_KEY # oh nooooooooooooooooo
 	API_KEY = bot.getOption("API_KEY", module="calc")
 	return True

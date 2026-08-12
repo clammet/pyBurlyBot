@@ -1,9 +1,11 @@
+from util.event import Event
+from util.types import BotLike
 # gdq donate. Silly thing.
 from util import Mapping
 import requests
 
 
-def gdqdonate(event, bot):
+def gdqdonate(event: Event, bot: BotLike) -> None:
 	""" donate """
 	r = requests.get("https://taskinoz.com/gdq/api/")
 	if r.status_code == 200:
@@ -11,7 +13,7 @@ def gdqdonate(event, bot):
 	else:
 		bot.say("Sad day.")
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	return True
 
 #mappings to methods

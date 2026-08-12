@@ -1,3 +1,5 @@
+from typing import Any
+from util.types import BotLike
 # selfpaste
 # *NIX ONLY. (Unless you code up the file inode part for the win32 side...)
 
@@ -46,7 +48,8 @@ TEMPLATE = """<!DOCTYPE html>
 """
 
 # TODO: Do we need to define some sort of 'typical paste API'?
-def paste(s, bot=None, title="BurlyBot paste", **kwargs):
+def paste(s: str, bot: BotLike | None=None, title: str="BurlyBot paste",
+	**kwargs: Any) -> str:
 	assert(bot is not None)
 	wwwroot = bot.getOption("wwwroot", module="selfpaste")
 	urlprefix = bot.getOption("url_prefix", module="selfpaste")
@@ -86,6 +89,6 @@ def paste(s, bot=None, title="BurlyBot paste", **kwargs):
 	return "%s/%s" % (urlprefix.rstrip("/"), nf)
 	
 	
-def init(bot):
+def init(bot: BotLike) -> bool:
 	# TODO: maybe check if wwwroot is writable?
 	return True

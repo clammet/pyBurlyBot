@@ -1,3 +1,6 @@
+from collections.abc import Callable, Iterable
+from time import struct_time
+from typing import Any, TextIO, cast
 #timehelpers.py
 from datetime import UTC, timedelta, datetime
 from time import time
@@ -29,15 +32,17 @@ WDAY_SHORTMAP = {
 }
 
 # adapted http://stackoverflow.com/a/2119512
-def days_hours_minutes(td):
+def days_hours_minutes(td: timedelta) -> tuple[int, int, int, int]:
 	return td.days, td.seconds//3600, (td.seconds//60)%60, td.seconds % 60
 
-def pluralize(term, num):
+def pluralize(term: str, num: int | float) -> str:
 	if num > 1: return term + "s"
 	else: return term
 	
 #distance_of_time_in_words hardcoded granularity
-def distance_of_time_in_words(fromtime, totime=None, suffix="ago"):
+def distance_of_time_in_words(
+	fromtime: int | float, totime: int | float | None=None, suffix: str="ago"
+) -> str:
 	if not totime:
 		totime = time()
 	past = True
@@ -53,6 +58,7 @@ def distance_of_time_in_words(fromtime, totime=None, suffix="ago"):
 	days, hours, minutes, seconds = days_hours_minutes(td)
 	
 	chunks = []
+	terms: tuple[tuple[str, int], ...]
 	if hours or days or minutes > 10:
 		terms = (("day", days), ("hour", hours), ("minute", minutes))
 	else:
@@ -76,10 +82,10 @@ def distance_of_time_in_words(fromtime, totime=None, suffix="ago"):
 			
 #isIterable (the tuple or list kind of iterable)
 # maybe there is a more apt name
-def isIterable(i):
+def isIterable(i: object) -> bool:
 	return isinstance(i, (set, list, tuple))
 	
-def processHostmask(h):
+def processHostmask(h: str | None) -> tuple[str | None, str | None, str | None]:
 	if h:
 		try:
 			nick, ident = h.split('!', 1)
@@ -94,7 +100,7 @@ def processHostmask(h):
 # This may return incorrectly decoded string because naive
 ENCODINGS = ("utf-8", "sjis", "latin_1", "gb2312", "cp1251", "cp1252",
 	"gbk", "cp1256", "euc_jp")
-def coerceToUnicode(s, enc=None):
+def coerceToUnicode(s: Any, enc: str | None=None) -> str:
 	if isinstance(s, str): return s
 	if not isinstance(s, bytes): return str(s)
 	if enc:
@@ -109,7 +115,9 @@ def coerceToUnicode(s, enc=None):
 	print("Warning, unknown coded character encounted in %s" % s)
 	return s
 		
-def processListReply(params):
+def processListReply(
+	params: list[str] | tuple[str, ...],
+) -> tuple[str, str, str | None, str | None, str | None, str, str]:
 	channel = params[1]
 	mask = params[2]
 	nick, ident, host = processHostmask(params[3])
@@ -118,10 +126,10 @@ def processListReply(params):
 
 # TODO: This seems pretty clunky. Maybe revisit/refactor it in future...	
 class PrefixMap:
-	def __init__(self, prefixiter):
+	def __init__(self, prefixiter: Iterable[tuple[str, tuple[str, int]]]) -> None:
 		self.loadfromprefix(prefixiter)
 		
-	def loadfromprefix(self, prefixiter):
+	def loadfromprefix(self, prefixiter: Iterable[tuple[str, tuple[str, int]]]) -> None:
 		prefixes = []
 		opfixes = []
 		opcmds = []
@@ -159,44 +167,45 @@ class PrefixMap:
 # split arguments in to [nargs] number of elements in the case of nargs > 1 else argument will be singular string
 # if pad=False: if len(arguments) < nargs return None as argument, 
 # else pad missing arguments with None
-def commandSplit(s, nargs=1, pad=True):
-	command = ""
+def commandSplit(s: str | None, nargs: int=1, pad: bool=True
+) -> tuple[str | None, Any]:
 	if s:
-		command = s.split(None, 1)
-		if len(command) > 1:
+		parts = s.split(None, 1)
+		if len(parts) > 1:
 			if nargs > 1:
-				a = argumentSplit(command[1], nargs, pad)
+				a = argumentSplit(parts[1], nargs, pad)
 				if a:
-					return (command[0], a)
+					return (parts[0], a)
 				else:
-					return (command[0], None)
+					return (parts[0], None)
 			else:
-				return command
+				return parts[0], parts[1]
 		else:
 			if pad and nargs > 1:
-				return command[0], (None,) * nargs
-			return command[0], None
+				return parts[0], (None,) * nargs
+			return parts[0], None
 	return (None, None)
 
 # like commandSplit, this is only for splitting arguments up
-def argumentSplit(s, nargs, pad=True):
+def argumentSplit(s: str | None, nargs: int,
+	pad: bool=True) -> list[str | None]:
 	""" Splits provided s in to a list of arguments up to nargs. If pad is true, it will pad
 		the remaining args up to nargs with None.
 	"""
 	if s:
-		s = shlex(s, posix=False)
-		s.commenters = ""
-		s.whitespace_split = True
+		lexer = shlex(s, posix=False)
+		lexer.commenters = ""
+		lexer.whitespace_split = True
 		i = 0
-		args = []
+		args: list[str | None] = []
 		while (i < nargs -1) or nargs == -1: # allows to split entire string
-			tok = s.get_token()
-			if tok and len(tok) >= 2 and tok[0] in s.quotes and tok[-1] == tok[0]:
+			tok = lexer.get_token()
+			if tok and len(tok) >= 2 and tok[0] in lexer.quotes and tok[-1] == tok[0]:
 				tok = tok[1:-1]
 			if not tok: break
 			args.append(tok)
 			i += 1
-		rest = s.instream.read().strip() 	#TODO: should this really be stripping here? Without strip:
+		rest = cast(TextIO, lexer.instream).read().strip() 	#TODO: should this really be stripping here? Without strip:
 		if rest:							# >>> argumentSplit('one "two three" four', 3)
 			args.append(rest)				# ['one', 'two three', ' four']
 			i += 1
@@ -207,7 +216,7 @@ def argumentSplit(s, nargs, pad=True):
 		return args
 	else:
 		if pad: return [None]*nargs
-		else: return ()
+		else: return []
 
 # TODO: add more outgoing things here for length calculation		
 commandlength = {
@@ -218,28 +227,31 @@ commandlength = {
 # Complicated method. Will split a unicode string to desires length without returning
 # malformed unicode strings.
 # Will return a list of (stringsegment, length of encoding) tuples.
-def splitEncodedUnicode(s, length, encoding="utf-8", n=1):
+def splitEncodedUnicode(
+	s: str, length: int, encoding: str="utf-8", n: int=1
+) -> list[tuple[str, int]]:
 	if length < 1: return [("", 0)]
 	es = s.encode(encoding)
 	le = len(es)
 	if le <= length:
 		return [(s, le)]
 	else:
-		splits = []
+		splits: list[tuple[str, int]] = []
 		ib = 0 # start of segment
 		# UTF-8 makes this somewhat easy
 		if lookup(encoding).name == "utf-8":
 			while ib < le and len(splits) < n:
 				ie = ib+length # end of segment
 				if ie >= le: 
-					splits.append(es[ib:ie])
+					segment = es[ib:ie]
+					splits.append((segment.decode("utf-8"), len(segment)))
 					break
 				c = es[ie]
 				#check for unicode character start byte, and backtrack if not found
 				while (0b10000000 & c != 0) and (0b11000000 & c != 0b11000000) and ie > ib:
 					ie -= 1
 					c = es[ie]
-				splits.append(es[ib:ie])
+				splits.append((es[ib:ie].decode("utf-8"), ie - ib))
 				if ib == ie: 
 					# in rare case that a character can't fit, skip it.
 					ie += 1
@@ -251,7 +263,6 @@ def splitEncodedUnicode(s, length, encoding="utf-8", n=1):
 					except IndexError: 
 						break # break if end of encoded string is reached.
 				ib = ie
-			splits = [(segment.decode("utf-8"), len(segment)) for segment in splits]
 			# it might be faster to calc all the endchar points first and then translate back.
 		else:
 			# not as bad as I thought it would be, but pretty bad
@@ -271,7 +282,7 @@ def splitEncodedUnicode(s, length, encoding="utf-8", n=1):
 		return splits
 
 # retrieve help for function f. sub will provide help for that sub command
-def functionHelp(f, sub=None):
+def functionHelp(f: Callable[..., Any], sub: str | None=None) -> str:
 	doc = getdoc(f)
 	if doc:
 		docs = doc.replace("\n", " ").split("|")
@@ -298,11 +309,13 @@ TIMEREGEX = re.compile(r'''
 (?:(\d*\.?\d+)s(?:ec(?:s|onds?)?)?)?
 ''', re.VERBOSE | re.IGNORECASE)
 
-def _parseDigit(s):
+def _parseDigit(s: str) -> float:
 	try: return float(s)
 	except ValueError: return 0
 
-def parseDateTime(s, t=None):
+def parseDateTime(
+	s: str, t: int | float | struct_time | tuple[int, ...] | None=None
+) -> int | float | None:
 	if not t: 
 		t = timegm(datetime.now().timetuple())
 	elif not (isinstance(t, float) or isinstance(t, int)):
@@ -416,7 +429,7 @@ def parseDateTime(s, t=None):
 
 # TODO: Would making a custom parser be faster than this? Is this even correct?
 #		Consider this? https://github.com/mammon-ircd/ircmatch
-def match_hostmask(s, mask):
+def match_hostmask(s: str, mask: str) -> bool:
 	if mask == "*": return True
 	mask = mask.replace(".", "\\.")
 	mask = mask.replace("*", ".+")

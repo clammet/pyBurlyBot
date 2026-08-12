@@ -7,8 +7,6 @@ primary command as a PRIVMSG.  It deliberately does not load the bot runtime,
 databases, or modules.
 """
 
-from __future__ import annotations
-
 import argparse
 import ast
 import codecs

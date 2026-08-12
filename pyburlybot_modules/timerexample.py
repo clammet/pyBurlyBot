@@ -1,12 +1,15 @@
+from util.event import Event
+from util.types import BotLike
 #timerexample.py
 
 from util import Mapping, Timers, commandSplit, argumentSplit, TimerExists, TimerInvalidName, TimerNotFound
 
 # requires keyword arguments
-def timercallback(bot=None, channel=None, msg=None):
+def timercallback(bot: BotLike, channel: str | None=None,
+	msg: str | None=None) -> None:
 	bot.sendmsg(channel, msg)
 
-def timers(event, bot):
+def timers(event: Event, bot: BotLike) -> None:
 	command, args = commandSplit(event.argument)
 	
 	if command == "show":
@@ -16,12 +19,13 @@ def timers(event, bot):
 		
 	elif command == "add":
 		args = argumentSplit(args, 4) #add timername delay reps msg
-		if not args:
+		timer_name, delay, repetitions, message = args
+		if timer_name is None or delay is None or repetitions is None:
 			bot.say("Not enough arguments. Need: timername delay reps message (reps <= 0 means forever)")
 			return
 		try:
-			if Timers.addtimer(args[0], float(args[1]), timercallback, reps=int(args[2]), msg=args[3], bot=bot, channel=event.target):
-				bot.say("Timer added (%s)" % args[0])
+			if Timers.addtimer(timer_name, float(delay), timercallback, reps=int(repetitions), msg=message, bot=bot, channel=event.target):
+				bot.say("Timer added (%s)" % timer_name)
 			else:
 				bot.say("Timer not added for some reason?")
 		except TimerExists:

@@ -31,31 +31,33 @@ MIRC_COLORS = {
 }
 
 
-def colorize(s, fg=None, bg=None):
+def colorize(s: str, fg: str | int | None=None, bg: str | int | None=None) -> str:
 	if fg:
 		fg_orig = fg
 		try:
-			fg = int(fg)
+			fg_num = int(fg)
 		except ValueError:
 			try:
-				fg = MIRC_COLORS[fg.lower()]
+				fg_num = MIRC_COLORS[str(fg).lower()]
 			except (ValueError, KeyError):
-				fg = None
+				fg_num = -1
 		finally:
-			if not fg or fg < 0 or fg > 15:
+			if fg_num < 0 or fg_num > 15:
 				raise ValueError('Invalid color:  %s' % fg_orig)
+		fg = fg_num
 	if bg:
 		bg_orig = bg
 		try:
-			bg = int(bg)
+			bg_num = int(bg)
 		except ValueError:
 			try:
-				bg = MIRC_COLORS[bg.lower()]
+				bg_num = MIRC_COLORS[str(bg).lower()]
 			except (ValueError, KeyError):
-				bg = None
+				bg_num = -1
 		finally:
-			if not bg or bg < 0 or bg > 15:
+			if bg_num < 0 or bg_num > 15:
 				raise ValueError('Invalid color:  %s' % bg_orig)
+		bg = bg_num
 	if fg and bg:
 		color_s = '%s,%s' % (fg, bg)
 	elif fg:
@@ -69,27 +71,27 @@ def colorize(s, fg=None, bg=None):
 	return MIRC_CONTROL_COLOR + color_s + s + MIRC_CONTROL_COLOR
 
 
-def bold(s):
+def bold(s: str) -> str:
 	return MIRC_CONTROL_BOLD + s + MIRC_CONTROL_BOLD
 
 
-def underline(s):
+def underline(s: str) -> str:
 	return MIRC_CONTROL_UNDERLINE + s + MIRC_CONTROL_UNDERLINE
 
 
-def italicize(s):
+def italicize(s: str) -> str:
 	return MIRC_CONTROL_ITALICIZE + s + MIRC_CONTROL_ITALICIZE
 
 
-RE_COLOR_CODE = r'(\x03(([0-9]{1,2})(,[0-9]{1,2})?|[0-9]{2},[0-9]{1,2}))+'
-RE_TRAILING_COLOR_CODE = compile_re(RE_COLOR_CODE + r'$')
-RE_COLOR_CODE = compile_re(RE_COLOR_CODE)
+COLOR_CODE_PATTERN = r'(\x03(([0-9]{1,2})(,[0-9]{1,2})?|[0-9]{2},[0-9]{1,2}))+'
+RE_TRAILING_COLOR_CODE = compile_re(COLOR_CODE_PATTERN + r'$')
+RE_COLOR_CODE = compile_re(COLOR_CODE_PATTERN)
 
 
 # Regarding mIRC color codes: Any valid FG or BG value will cause the text color
 # to be modified.  All of the following will do something:
 # '\x0399,00', '\x0300,99', '\x0303,3238' (will display '38' in green text)
-def escape_control_codes(s):
+def escape_control_codes(s: str) -> str:
 	'''
 	Append the appropriate mIRC control character to string s to escape the
 	active string control codes, or append MIRC_CONTROL_CLEARFORMATTING (\x0f)
@@ -105,7 +107,7 @@ def escape_control_codes(s):
 	s = s.rstrip(MIRC_CONTROL_BOLD + MIRC_CONTROL_UNDERLINE +
 	MIRC_CONTROL_ITALICIZE + MIRC_CONTROL_COLOR + MIRC_CONTROL_CLEARFORMATTING)
 	s = RE_TRAILING_COLOR_CODE.sub('', s)
-	control_tracking = set()
+	control_tracking: set[str] = set()
 	for index, c in enumerate(s):
 		if c in (MIRC_CONTROL_BOLD,	MIRC_CONTROL_UNDERLINE,	MIRC_CONTROL_ITALICIZE):
 			if c in control_tracking:
@@ -145,7 +147,7 @@ def escape_control_codes(s):
 	return s
 
 
-def strip_control_characters(s):
+def strip_control_characters(s: str) -> str:
 	'''
 	Strip all control characters from s, and in the case of color codes
 	strip the associated numbers out as well.  Effectively return an
@@ -160,28 +162,28 @@ def strip_control_characters(s):
 	return RE_COLOR_CODE.sub('', s)
 
 
-def AAA(s):
+def AAA(s: str) -> str:
 	e = type(s)
-	s = list(s)
-	s_len = len(s)
+	chars = list(s)
+	s_len = len(chars)
 	count = 0
 	x = 0
 	while True:
 		if count == 0:
 			x += randint(int(s_len * .08), int(s_len * .18))
-			s.insert(x, e(MIRC_CONTROL_BOLD))
+			chars.insert(x, e(MIRC_CONTROL_BOLD))
 		elif count == 1:
 			x += randint(int(s_len * .1), int(s_len * .25))
-			s.insert(x, e(MIRC_CONTROL_UNDERLINE))
+			chars.insert(x, e(MIRC_CONTROL_UNDERLINE))
 		elif count == 2:
 			x += randint(int(s_len * .1), int(s_len * .25))
-			if s[x].isdigit():
-				s.insert(x, e(MIRC_CONTROL_COLOR + '04'))
+			if chars[x].isdigit():
+				chars.insert(x, e(MIRC_CONTROL_COLOR + '04'))
 			else:
-				s.insert(x, e(MIRC_CONTROL_COLOR + '4'))
+				chars.insert(x, e(MIRC_CONTROL_COLOR + '4'))
 		elif count == 3:
 			x += randint(int(s_len * .2), s_len - x)
-			s.insert(x, e(MIRC_CONTROL_ITALICIZE))
+			chars.insert(x, e(MIRC_CONTROL_ITALICIZE))
 			break
 		count += 1
-	return e(''.join(s))
+	return e(''.join(chars))

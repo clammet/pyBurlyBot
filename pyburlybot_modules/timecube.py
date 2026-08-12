@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 
 from util import Mapping
 import urllib.request, urllib.parse, urllib.error
@@ -25,11 +27,11 @@ IRC_COLORS = (
 )
 
 
-def find_color(hexcolor):
+def find_color(hexcolor: str) -> str:
 	rgb = [int(y, 16) for y in (hexcolor[0:2], hexcolor[2:4], hexcolor[4:6])]
 	sumOfSquares = (9999999, 0)
-	for num, color in enumerate(IRC_COLORS):
-		diff = sum((x - y) ** 2 for x, y in zip(color, rgb))
+	for num, irc_color in enumerate(IRC_COLORS):
+		diff = sum((x - y) ** 2 for x, y in zip(irc_color, rgb))
 		if diff < sumOfSquares[0]:
 			sumOfSquares = (diff, num)
 	if sumOfSquares[1] in (0,1):
@@ -41,7 +43,7 @@ def find_color(hexcolor):
 	return color
 
 
-def timecube(event, bot):
+def timecube(event: Event, bot: BotLike) -> None:
 	"""FOUR SIMULTANEOUS EARTH CUBE ROTATIONS."""
 	tc_url = bot.getOption("URL", module="timecube")
 	if not tc_url:

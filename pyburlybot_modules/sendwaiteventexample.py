@@ -1,3 +1,6 @@
+from util.event import Event
+from util.types import BotLike
+from typing import Any
 #sendwaiteventexample.py
 
 #example on how to send and then wait on events
@@ -6,7 +9,7 @@ from util import Mapping, TimeoutException
 from twisted.internet import reactor
 from twisted.internet.threads import blockingCallFromThread
 
-def waitexample(event, bot):
+def waitexample(event: Event, bot: BotLike) -> None:
 	count = 0
 	try:
 		for event in bot.send_and_wait("noticed", f=bot.notice, fargs=(event.nick, "sending...")):
@@ -17,11 +20,11 @@ def waitexample(event, bot):
 		print("TIMEOUT!")
 	print("bailed generator")
 	
-def printwaits(s):
+def printwaits(s: Any) -> None:
 	print(s.dispatcher.waitmap)
 
 # never ever do something like this please, please. This is debugging example.	
-def waitlist(event, bot):
+def waitlist(event: Event, bot: BotLike) -> None:
 	blockingCallFromThread(reactor, printwaits, bot._settings)
 	bot.say("done.")
 

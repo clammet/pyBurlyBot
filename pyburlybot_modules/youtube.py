@@ -1,3 +1,6 @@
+from typing import Any
+from util.event import Event
+from util.types import BotLike
 # youtube search/info module
 
 from util import Mapping, fetchone
@@ -7,7 +10,7 @@ from html import unescape
 from time import strftime, strptime
 
 REQUIRES = ("googleapi",)
-GAPI_MODULE = None
+GAPI_MODULE: Any = None
 
 # title: snippet (url)
 RESULT_TEXT = "{%s} (%%s)"
@@ -24,7 +27,7 @@ THREEDEE = "\x034,11\x023\x0311,4\x1fD\x0f"
 
 DURATION_FORMATS = ['PT%HH%MM%SS', 'PT%MM%SS', 'PT%SS']
 
-def seen_video(event, bot):
+def seen_video(event: Event, bot: BotLike) -> None:
 	#verify ID exists:
 	#TODO: is this bad? I can't find reference of "regs" in re docs but it seems to hold what I want
 	match = event.regex_match
@@ -33,7 +36,7 @@ def seen_video(event, bot):
 		bot.dbQuery("""INSERT OR REPLACE INTO youtubeseen (source, id) 
 			VALUES (?,?);""", (event.target, id))
 
-def _process_duration(s):
+def _process_duration(s: str) -> str:
 	t = None
 	for format in DURATION_FORMATS:
 		try: t = strptime(s, format)
@@ -43,7 +46,7 @@ def _process_duration(s):
 		else: return strftime("%M:%S", t)
 	else: return "?:??"
 
-def show_youtube_info(event, bot):
+def show_youtube_info(event: Event, bot: BotLike) -> None:
 	if not event.argument:
 		row = bot.dbQuery("""SELECT id FROM youtubeseen 
 								WHERE source=?;""", (event.target,), fetchone)
@@ -72,7 +75,7 @@ def show_youtube_info(event, bot):
 	bot.say(VID_INFO % (SHORTURL % result['id'], duration, flags, views, likes, dislikes, favs, comments), 
 		strins=[result['snippet']['title'], result['snippet']['description'].replace("\n", " ")])
 
-def youtube(event, bot):
+def youtube(event: Event, bot: BotLike) -> None:
 	""" youtube [searchterm/ID/"random"]. If no argument is provided will look up the details of the last youtube video. 
 	Otherwise will search Google using the provided searchterm, 
 	or provide detailed video information if youtube video ID is provided. random will display random video."""
@@ -100,7 +103,7 @@ def youtube(event, bot):
 	else:
 		bot.say("(%s) No results found." % numresults)
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global GAPI_MODULE # oh nooooooooooooooooo
 	
 	bot.dbCheckCreateTable("youtubeseen", 

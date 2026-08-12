@@ -1,5 +1,11 @@
+from collections.abc import Sequence
+from typing import Any
+import sqlite3
+from util.event import Event
+from util.types import BotLike
+from util.db import Query
 #alert module
-from time import gmtime, localtime
+from time import gmtime, localtime, struct_time
 from util import Timers, TimerExists
 from calendar import timegm
 from collections import deque
@@ -10,8 +16,8 @@ from util.settings import ConfigException
 
 TIMER_NAME = 'alert_timer'
 REQUIRES = ("users",)
-USERS_MODULE = None
-TELLDELIVER_OBJ = None
+USERS_MODULE: Any = None
+TELLDELIVER_OBJ: Any = None
 # Seconds
 LOOP_INTERVAL = 30.0
 
@@ -24,11 +30,12 @@ UNKNOWN = " Don't know (%s)."
 MAX_REMIND_TIME = 31540000 # 1 year
 
 
-def _lookup_users(bot, users_string, caller_nick, skip_self=True):
-	user_set = set()
+def _lookup_users(bot: BotLike, users_string: str, caller_nick: str,
+	skip_self: bool=True) -> tuple[list[tuple[str, str]], list[str], bool, bool]:
+	user_set: set[str] = set()
 	has_dupes = False
-	users = [] # user,called
-	unknown = []
+	users: list[tuple[str, str]] = [] # user,called
+	unknown: list[str] = []
 	to_lookup_list = deque(users_string.split(","))
 	has_self = False
 	while to_lookup_list:
@@ -47,7 +54,7 @@ def _lookup_users(bot, users_string, caller_nick, skip_self=True):
 	return users, unknown, has_dupes, has_self
 
 
-def check_alerts_callback(bot=None):
+def check_alerts_callback(bot: BotLike) -> None:
 	current_time = int(timegm(gmtime()))
 	timecheck = current_time + int(LOOP_INTERVAL)
 	# This seems like it might be a bit of a waste. But it should stop the rare occurance of "double tell delivery" (I've only seen it happen once.)
@@ -55,8 +62,8 @@ def check_alerts_callback(bot=None):
 			FROM alert WHERE delivered=0 AND alert_time<? ORDER BY alert_time;''', (timecheck,))
 
 
-	deliver_now = {}
-	deliver_soon = {}
+	deliver_now: dict[str, list[sqlite3.Row]] = {}
+	deliver_soon: dict[str, list[sqlite3.Row]] = {}
 	for a in alerts:
 		chan_or_user = a['source'].lower()
 		delay = a['alert_time'] - current_time
@@ -66,9 +73,10 @@ def check_alerts_callback(bot=None):
 			deliver_soon.setdefault(chan_or_user, []).append(a)
 
 	for chan_or_user, alerts in deliver_now.items():
-		deliver_alerts(chan_or_user, alerts)
+		deliver_alerts(chan_or_user, alerts, bot)
 
 	for chan_or_user, alerts in deliver_soon.items():
+		delay = alerts[0]['alert_time'] - current_time
 		ids = '_'.join(str(x['id']) for x in alerts)
 		timer_name = '%s_%s' % (TIMER_NAME, ids)
 		try:
@@ -78,13 +86,16 @@ def check_alerts_callback(bot=None):
 			pass
 
 
-def deliver_alerts(chan_or_user=None, alerts=None, bot=None):
+def deliver_alerts(chan_or_user: str | None=None,
+	alerts: Sequence[sqlite3.Row] | None=None, bot: BotLike | None=None) -> None:
 	if not bot:
+		return
+	if not alerts:
 		return
 	current_time = int(timegm(gmtime()))
 
-	filtered_alerts = []
-	row_ids = []
+	filtered_alerts: list[sqlite3.Row] = []
+	row_ids: list[str] = []
 	for a in alerts:
 		id = str(a['id'])
 		if bot.dbQuery('''SELECT 1 FROM alert WHERE delivered=0 AND id=?''', (id,)):
@@ -96,13 +107,12 @@ def deliver_alerts(chan_or_user=None, alerts=None, bot=None):
 		return
 
 	collate = False
-	lines = None
+	lines: list[str] | None = None
 	if len(alerts) > 3:
 		collate = True
 		lines = []
 
 	for a in alerts:
-		row_ids.append(id)
 		receiving_user = a['target_user']
 		source_user = a['source_user']
 		if source_user:
@@ -113,11 +123,13 @@ def deliver_alerts(chan_or_user=None, alerts=None, bot=None):
 			fmt = SELF_ALERT_FORMAT
 
 		if collate:
+			assert lines is not None
 			lines.append(fmt.format(*data))
 		else:
 			bot.sendmsg(chan_or_user, fmt, strins=data, fcfs=True)
 
 	if collate:
+		assert lines is not None
 		msg = "Alerts for (%s): %%s" % receiving_user
 		title = "Alerts for (%s)" % receiving_user
 		pastehelper(bot, msg, items=lines, altmsg="%s", force=True, title=title)
@@ -125,21 +137,25 @@ def deliver_alerts(chan_or_user=None, alerts=None, bot=None):
 		bot.dbQuery('''UPDATE alert SET delivered=1 WHERE id=?;''', (row_id, ))
 
 
-def alert(event, bot):
+def alert(event: Event, bot: BotLike) -> None:
 	""" alert target datespec msg. Alert a user <target> about a message <msg> at <datespec> time.
 		datespec can be relative (in) or calendar/day based (on), e.g. 'in 5 minutes'"""
 	target, dtime1, dtime2, msg = argumentSplit(event.argument, 4)
 	if not target:
 		return bot.say(functionHelp(alert))
+	if not dtime1:
+		return bot.say("Need time to alert.")
 	if dtime1.lower() == "tomorrow":
 		target, dtime1, msg = argumentSplit(event.argument, 3) # reparse is easiest way I guess... resolves #30 if need to readdress
 		dtime2 = ""
 	else:
 		if not (dtime1 and dtime2): return bot.say("Need time to alert.")
+	if not target:
+		return bot.say(functionHelp(alert))
 	if not msg:
 		return bot.say("Need something to alert (%s)" % target)
 
-	origuser = USERS_MODULE.get_username(bot, event.nick)
+	origuser = USERS_MODULE.get_username(bot, event.nick) or event.nick or ""
 	users, unknown, dupes, _ = _lookup_users(bot, target, origuser, False)
 
 	if not users:
@@ -160,36 +176,34 @@ def alert(event, bot):
 	origin_time = timegm(gmtime())
 	alocal_time = localtime(origin_time)
 	local_offset = timegm(alocal_time) - origin_time
+	t: struct_time = alocal_time
+	tz: Any = None
 	if locmod and goomod:
-		t = origin_time
 		loc = locmod.getlocation(bot.dbQuery, origuser)
 		if not loc:
 			timelocale = False
-			t = alocal_time
 		else:
-			tz = goomod.google_timezone(loc[1], loc[2], t)
+			tz = goomod.google_timezone(loc[1], loc[2], origin_time)
 			if not tz:
 				timelocale = False
-				t = alocal_time
 			else:
-				t = gmtime(t + tz[2] + tz[3]) #[2] dst [3] timezone offset
-	else:
-		t = alocal_time
+				t = gmtime(origin_time + tz[2] + tz[3]) #[2] dst [3] timezone offset
 	ntime = parseDateTime(dtime, t)
 	if not ntime:
 		return bot.say("Don't know what time and/or day and/or date (%s) is." % dtime)
 
 	# go on, change it. I dare you.
 	if timelocale:
-		t = timegm(t) - tz[2] - tz[3]
+		assert tz is not None
+		current_time = timegm(t) - tz[2] - tz[3]
 		ntime = ntime - tz[2] - tz[3]
 	else:
-		t = timegm(t) - local_offset
+		current_time = timegm(t) - local_offset
 		ntime = ntime - local_offset
 
-	if ntime < t or ntime > (t + MAX_REMIND_TIME):
+	if ntime < current_time or ntime > (current_time + MAX_REMIND_TIME):
 		return bot.say("Don't sass me with your back to the future alerts.")
-	if ntime < (t + 5):
+	if ntime < (current_time + 5):
 		return bot.say("2fast")
 
 	targets = []
@@ -207,26 +221,26 @@ def alert(event, bot):
 		bot.dbQuery('''INSERT INTO alert(target_user, alert_time, created_time, source, source_user, msg) VALUES (?,?,?,?,?,?);''',
 				(user, int(ntime), int(origin_time), chan_or_user, source_user, msg))
 
-		if ntime < (t + LOOP_INTERVAL):
+		if ntime < (current_time + LOOP_INTERVAL):
 			Timers.restarttimer(TIMER_NAME)
 
 		if not source_user:
 			targets.append("you")
 		else:
 			targets.append(target)
-	bot.say(RPL_ALERT_FORMAT % (event.nick, english_list(targets), distance_of_time_in_words(ntime, t),
+	bot.say(RPL_ALERT_FORMAT % (event.nick, english_list(targets), distance_of_time_in_words(ntime, current_time),
 		UNKNOWN % english_list(unknown) if unknown else "", MULTIUSER % "Alerting" if dupes else ""))
 
 
-def _user_rename(old, new):
+def _user_rename(old: str, new: str) -> tuple[Query, ...]:
 	return ('''UPDATE alert SET target_user=? WHERE target_user=?;''', (new, old)),
 
 
-def setup_timer(event, bot):
+def setup_timer(event: Event, bot: BotLike) -> None:
 	Timers.addtimer(TIMER_NAME, LOOP_INTERVAL, check_alerts_callback, reps=-1, startnow=False, bot=bot)
 
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global USERS_MODULE # oh nooooooooooooooooo
 	bot.dbCheckCreateTable("alert",
 		'''CREATE TABLE alert(

@@ -1,3 +1,6 @@
+from collections.abc import Callable, Generator, Iterable, Sequence
+from types import ModuleType
+from typing import Any, NoReturn, TypeAlias, cast
 #container...
 #This module does a few things. It holds a reference to the current botinstance
 #it wraps actual botinst functions to limit the scope of what functions modules have access to within botinstance
@@ -8,36 +11,43 @@ from collections import deque
 from time import time, sleep
 from functools import partial
 
-from twisted.internet import reactor
+from twisted.internet import reactor as _reactor
 from twisted.internet.threads import blockingCallFromThread
 from twisted.python.failure import Failure
 
 from util.state import Network
 from util.client import BurlyBot
-from util.helpers import isIterable
+from util.db import Query
+from util.event import Event
+from util.types import DatabaseParams
+
+reactor: Any = _reactor
+EventTypes: TypeAlias = str | set[str] | list[str] | tuple[str, ...] | None
 
 class TimeoutException(Exception):
 	pass
 
 class WaitData:
-	def __init__(self, interestede, stope):
+	def __init__(self, interestede: EventTypes, stope: EventTypes) -> None:
 		# Cannot both be empty
 		assert(interestede or stope)
 		self.done = False
-		self.q = Queue()
+		self.q: Queue[Event] = Queue()
+		self.interestede: set[str | None]
+		self.stope: set[str | None]
 
 		# Coerce a string to a set and force lower
 		# all event_types are lower in lookups/dispatch
-		if isIterable(interestede):
+		if isinstance(interestede, (set, list, tuple)):
 			self.interestede = set(x.lower() for x in interestede)
-		elif interestede:
+		elif isinstance(interestede, str):
 			self.interestede = {interestede.lower()}
 		else:
 			self.interestede = {None}
 
-		if isIterable(stope):
+		if isinstance(stope, (set, list, tuple)):
 			self.stope = set(x.lower() for x in stope)
-		elif interestede:
+		elif isinstance(stope, str):
 			self.stope = {stope.lower()}
 		else:
 			self.stope = {None}
@@ -47,17 +57,17 @@ class Container:
 	BLOCKINGCALLS = {BurlyBot.checkSendMsg.__name__, BurlyBot.assembleMsgWLen.__name__,
 		BurlyBot.calcAvailableMsgLength.__name__}
 
-	def __init__(self, settings):
+	def __init__(self, settings: Any) -> None:
 		self.network = settings.serverlabel
 		self._settings = settings
 		self.state = Network(settings.serverlabel)
-		self._botinst = None
-		self._outqueue = deque() #deque or Queue, whatever
+		self._botinst: BurlyBot | None = None
+		self._outqueue: deque[tuple[str, tuple[Any, ...], dict[str, Any]]] = deque()
 
 	# TODO: instead of just redirecting the attribute lookup to _botinst maybe we should
 	# define an explicit API and only allow access to those attributes, rather than
 	# allowing access to everything in _botinst, like callbacks and stuff
-	def __getattr__(self, name):
+	def __getattr__(self, name: str) -> Any:
 		#if name isn't in container, look in botinst IF BOTINST EXISTS
 		if name in self.__dict__: 
 			return getattr(self, name)
@@ -82,20 +92,20 @@ class Container:
 					#  but there is no botinst, exception will be raised
 					raise ValueError("Bot not connected.")
 
-	def _queuer(self, funcname, *args, **kwargs):
+	def _queuer(self, funcname: str, *args: Any, **kwargs: Any) -> None:
 		self._outqueue.append((funcname, args, kwargs))
 	
 	# say needs a source (channel, user, etc.) A source is supplied in BotWrapper
-	def say(self, msg):
+	def say(self, msg: Any) -> NoReturn:
 		raise ValueError("No source defined.")
 	
-	def _setBotinst(self, botinst):
+	def _setBotinst(self, botinst: BurlyBot | None) -> None:
 		self._botinst = botinst
 		# checkqueue 2 seconds after signedOn to give time to join channels and stablize
 		# also keep checking this outqueue 2 seconds later if there is still elements left
 		reactor.callLater(2, self._checkQueue)
 	
-	def _checkQueue(self):
+	def _checkQueue(self) -> None:
 		checkAgain = False
 		if self._botinst:
 			while self._outqueue:
@@ -111,36 +121,36 @@ class Container:
 			reactor.callLater(2, self._checkQueue)
 
 	# Option getter/setters	
-	def getOption(self, opt, **kwargs):
+	def getOption(self, opt: str, **kwargs: Any) -> Any:
 		return self._settings.getOption(opt, **kwargs)
 	
-	def getOptions(self, opts, **kwargs):
+	def getOptions(self, opts: Iterable[str], **kwargs: Any) -> list[Any]:
 		return self._settings.getOptions(opts, **kwargs)
 		
-	def setOption(self, opt, value, **kwargs):
-		blockingCallFromThread(reactor, self._setOption, opt, value, **kwargs)
+	def setOption(self, opt: str, value: Any, **kwargs: Any) -> None:
+		blockingCallFromThread(reactor, cast(Any, self._setOption), opt, value, **kwargs)
 		
-	def _setOption(self, opt, value, **kwargs):
+	def _setOption(self, opt: str, value: Any, **kwargs: Any) -> None:
 		self._settings.setOption(opt, value, **kwargs)
 		
 	# Some module helpers
-	def _getModule(self, modname):
+	def _getModule(self, modname: str) -> ModuleType:
 		return self._settings.getModule(modname)
-	def getModule(self, modname):
+	def getModule(self, modname: str) -> ModuleType:
 		return blockingCallFromThread(reactor, self._getModule, modname)
 	
-	def isModuleAvailable(self, modname):
+	def isModuleAvailable(self, modname: str) -> bool:
 		return self._settings.isModuleAvailable(modname)
 		
-	def _getAddon(self, addonname):
+	def _getAddon(self, addonname: str) -> Callable[..., Any]:
 		return self._settings.getAddon(addonname)
-	def getAddon(self, addonname):
+	def getAddon(self, addonname: str) -> Callable[..., Any]:
 		return blockingCallFromThread(reactor, self._getAddon, addonname)
 	
 	#callback to handle module errors
 	#TODO: maybe provide modules a way to hook these?
 	#	like if we let a module provide a function, we can pass the Failure object to it.
-	def _moduleerr(self, e):
+	def _moduleerr(self, e: Any) -> None:
 		# docs seem to suggest this is always a Failure instance...
 		if isinstance(e, Failure):
 			e.cleanFailure()
@@ -156,7 +166,9 @@ class Container:
 	# generator.close() if you suspect that your function won't be finished for some time after bailing from a generator.
 	# BIG WARNING: iterate over the generator with something like "for e in bot.send_and_wait(...
 	#	May leak very fast if you have unhandled exceptions inside the loop, (the above mitigates this I think...)
-	def send_and_wait(self, interestede, stope=(), timeout=10, f=None, fargs=(), **kwargs):
+	def send_and_wait(self, interestede: EventTypes, stope: EventTypes=(),
+		timeout: int | float=10, f: Callable[..., Any] | None=None,
+		fargs: Sequence[Any]=(), **kwargs: Any) -> Generator[Event, None, None]:
 		"""This method will block and yield events as they come..."""
 		if not f:
 			raise ValueError("Missing function")
@@ -195,49 +207,51 @@ class Container:
 			reactor.callFromThread(self._settings.dispatcher.delWaitData, wd)
 	
 	# DB methods
-	def dbQuery(self, q, params=(), func=None):
+	def dbQuery(self, q: str, params: DatabaseParams=(),
+		func: Callable[..., Any] | None=None) -> Any:
 		return self._settings.databasemanager.query(self.network, q, params, func)
 	
-	def dbBatch(self, qs):
+	def dbBatch(self, qs: Sequence[Query]) -> list[Any]:
 		""" Run a series of queries back to back without possibility of being interupted.
 		qs is an iterable of (query, params)"""
 		return self._settings.databasemanager.batch(self.network, qs)
 	
-	def dbCheckCreateTable(self, tablename, createstmt):
+	def dbCheckCreateTable(self, tablename: str, createstmt: str) -> bool:
 		return self._settings.databasemanager.dbCheckCreateTable(self.network, tablename, createstmt)
 		
 	# helper for modules. Module code that using this shouldn't be in the reactor thread
 	# (which should be all the time, unless it's in init() )
-	def later(self, delay, callable, *args, **kw):
-		try: callable = callable.func # assume callable will be a functools.partial object returned from Container.__getattr__
+	def later(self, delay: int | float, callable: Callable[..., Any],
+		*args: Any, **kw: Any) -> None:
+		try: callable = getattr(callable, "func") # assume callable will be a functools.partial object returned from Container.__getattr__
 		except AttributeError: pass
 		reactor.callFromThread(reactor.callLater, delay, callable, *args, inreactor=True, **kw)
 
 # provide special container to use when feeding "init()" of modules
 # doesn't try to call methods inside reactor because already inside reactor
 class SetupContainer:
-	def __init__(self, realcontainer):
+	def __init__(self, realcontainer: Container) -> None:
 		self.container = realcontainer
 		self.network = realcontainer.network
 		
 	# Some module helpers so that the bot doesn't freeze during dispatcher initialization due to "blockingcallfromthread"
-	def getModule(self, modname):
+	def getModule(self, modname: str) -> ModuleType:
 		return self.container._getModule(modname)
 	
-	def isModuleAvailable(self, modname):
+	def isModuleAvailable(self, modname: str) -> bool:
 		return self.container.isModuleAvailable(modname)
 		
-	def getOption(self, opt, **kwargs):
+	def getOption(self, opt: str, **kwargs: Any) -> Any:
 		return self.container.getOption(opt, inreactor=True, **kwargs)
 	
-	def getOptions(self, opts, **kwargs):
+	def getOptions(self, opts: Iterable[str], **kwargs: Any) -> list[Any]:
 		return self.container.getOptions(opts, inreactor=True, **kwargs)
 	
-	def setOption(self, opt, value, **kwargs):
+	def setOption(self, opt: str, value: Any, **kwargs: Any) -> None:
 		return self.container._setOption(opt, value, **kwargs)
 	
-	def dbCheckCreateTable(self, tablename, createstmt):
+	def dbCheckCreateTable(self, tablename: str, createstmt: str) -> bool:
 		return self.container.dbCheckCreateTable(tablename, createstmt)
 	
-	def getAddon(self, addonname):
+	def getAddon(self, addonname: str) -> Callable[..., Any]:
 		return self.container._getAddon(addonname)

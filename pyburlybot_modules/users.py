@@ -1,29 +1,40 @@
+from collections.abc import Callable, Iterable
+import sqlite3
+from typing import Any, cast
+from util.event import Event
+from util.types import BotLike, DatabaseQuery
+from util.db import Query
 #users
 from util import Mapping, distance_of_time_in_words, fetchone
 # Modules should not import Settings unless you have a very good reason to do so.
 from util.settings import Settings
 
-ALIAS_MODULE = None
+ALIAS_MODULE: Any = None
 
-OPTIONS = {
+OPTIONS: dict[str, tuple[type, str, list[str]]] = {
 	"hidden" : (list, "Channels in this list will not be shown in seen requests.", []),
 }
 
 # [network] = [statement]
-TABLEUPDATES = {}
+TableUpdate = Callable[[str, str], Iterable[Query]]
+ExternalUpdate = Callable[[str, str, str], None]
+
+TABLEUPDATES: dict[str, list[TableUpdate]] = {}
 # [network] = [func]
-EXTERNALUPDATES = {}
+EXTERNALUPDATES: dict[str, list[ExternalUpdate]] = {}
 
 SEENMSGWSOURCE = 'I last saw %s %s on %s. "%s"'
 SEENMSG = 'I last saw %s %s.'
 
-def _user_update(qfunc, event, nick=None):
+def _user_update(qfunc: DatabaseQuery, event: Event, nick: str | None=None) -> None:
 	#check if exists, then update
 	if not nick: nick = event.nick
+	if nick is None:
+		return
 	qfunc('''INSERT OR REPLACE INTO user (user, host, lastseen, seenwhere, lastmsg) VALUES(?,?,?,?,?);''',
 		(nick, event.hostmask, int(event.time), event.target, event.msg))
 
-def user_update(event, bot):
+def user_update(event: Event, bot: BotLike) -> None:
 	#check is alias is loaded and available
 	# this method gets called on the reactor so it may cause many context switches :(
 	if bot.isModuleAvailable("alias"):
@@ -34,7 +45,7 @@ def user_update(event, bot):
 	return
 
 #returns user row, i.e. all user properties in the result
-def get_user(bot, nick):
+def get_user(bot: BotLike, nick: str) -> sqlite3.Row | None:
 	qfunc = bot.dbQuery
 	if bot.isModuleAvailable("alias"):
 		anick = ALIAS_MODULE.lookup_alias(qfunc, nick)
@@ -42,7 +53,8 @@ def get_user(bot, nick):
 	return qfunc('''SELECT * FROM user WHERE user=?;''', (nick,), func=fetchone)
 
 #returns username only, or None if no user exists.
-def get_username(bot, nick, source=None, _inalias=False):
+def get_username(bot: BotLike, nick: str, source: str | None=None,
+	_inalias: bool=False) -> str | None:
 	qfunc = bot.dbQuery
 	if source and nick.lower() == "me": nick = source
 	if _inalias or bot.isModuleAvailable("alias"):
@@ -53,14 +65,15 @@ def get_username(bot, nick, source=None, _inalias=False):
 	return _get_username(qfunc, nick)
 
 # get username only. do not look for aliases.
-def _get_username(qfunc, nick):
+def _get_username(qfunc: DatabaseQuery, nick: str) -> str | None:
 	user = qfunc('''SELECT user FROM user WHERE user=?;''', (nick,), func=fetchone)
 	if user: return user['user']
+	return None
 
-def _user_seen(qfunc, nick):
+def _user_seen(qfunc: DatabaseQuery, nick: str) -> sqlite3.Row | None:
 	return qfunc('''SELECT lastseen, seenwhere, lastmsg FROM user WHERE user = ?;''', (nick, ), fetchone)
 
-def user_seen(event, bot):
+def user_seen(event: Event, bot: BotLike) -> str | None:
 	target = event.argument
 	if not target:
 		return bot.say("Seen who?")
@@ -74,6 +87,8 @@ def user_seen(event, bot):
 			msgs = []
 			for member in group:
 				seen = _user_seen(bot.dbQuery, member)
+				if seen is None:
+					continue
 				if seen['seenwhere'] in hidden:
 					msgs.append(SEENMSG % (target, distance_of_time_in_words(seen['lastseen']) ))
 				else:
@@ -90,13 +105,13 @@ def user_seen(event, bot):
 					if first: bot.say("%s, %s" % (event.nick, msg))
 					else: bot.say(msg)
 					first = False
-				return
+				return None
 		
 		# not group, look for alias:
 		nick = ALIAS_MODULE.lookup_alias(bot.dbQuery, target)
 		seen = _user_seen(bot.dbQuery, nick if nick else target)
 	else:
-		seen = _user_seen(target)
+		seen = _user_seen(bot.dbQuery, target)
 	
 	if not seen:
 		bot.say("%s, lol dunno." % event.nick)
@@ -106,26 +121,30 @@ def user_seen(event, bot):
 		else:
 			bot.say("%s, %s" % (event.nick, SEENMSGWSOURCE % (target, distance_of_time_in_words(seen['lastseen']),
 				seen['seenwhere'], seen['lastmsg'])))
-	return
+	return None
 
-def _rename_user(network, old, new):
-	qs = []
-	for f in TABLEUPDATES.get(network, []):
-		qs.extend(f(old, new))
+def _rename_user(network: str, old: str, new: str) -> None:
+	qs: list[Query] = []
+	for table_update in TABLEUPDATES.get(network, []):
+		qs.extend(table_update(old, new))
 	qs.append(('''DELETE FROM user WHERE user=?;''', (old,)))
-	Settings.databasemanager.batch(network, qs)
-	for f in EXTERNALUPDATES.get(network, []):
-		f(network, old, new)
+	manager = Settings.databasemanager
+	if manager is None:
+		raise RuntimeError("Database manager has not been initialized.")
+	manager.batch(network, qs)
+	for external_update in EXTERNALUPDATES.get(network, []):
+		external_update(network, old, new)
 	
 # passed function MUST return a list of queries to be executed. See tell.py and location.py for examples.
-def REGISTER_UPDATE(network, func, external=False):
+def REGISTER_UPDATE(network: str, func: TableUpdate | ExternalUpdate,
+	external: bool=False) -> None:
 	if not external:
-		TABLEUPDATES.setdefault(network, []).append(func)
+		TABLEUPDATES.setdefault(network, []).append(cast(TableUpdate, func))
 	else:
-		EXTERNALUPDATES.setdefault(network, []).append(func)
+		EXTERNALUPDATES.setdefault(network, []).append(cast(ExternalUpdate, func))
 
 #init should always be here to setup needed DB tables or objects or whatever
-def init(bot):
+def init(bot: BotLike) -> bool:
 	"""Do startup module things. This just checks if table exists. If not, creates it."""
 	bot.dbCheckCreateTable('user',
 		'''CREATE TABLE user(

@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 #config module
 
 from util import Mapping, argumentSplit, functionHelp
@@ -10,8 +12,10 @@ from json import dumps, loads
 
 PRIVATE_OPTIONS = {"nickservpass", "API_KEY"}
 
-def servchanParse(servchan):
+def servchanParse(servchan: str) -> tuple[str | bool | None, str | bool | None]:
 	# parse servchan
+	server: str | bool | None
+	channel: str | bool | None
 	if servchan == "-": 
 		server = False
 		channel = False
@@ -34,7 +38,7 @@ def servchanParse(servchan):
 class EmptyValue:
 	pass
 
-def config(event, bot):
+def config(event: Event, bot: BotLike) -> None:
 	""" config serverchannel module opt [value]. serverchannel = servername:#channel (channel on server) or
 	servername (default for server) or :#channel (channel globally) or #channel (channel on this server) or "-" (default)
 	or "this" (current channel (unless PM) current server.) module = "-" for non-module options. value should be JSON

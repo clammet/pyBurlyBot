@@ -1,3 +1,5 @@
+from typing import Any
+from util.types import BotLike
 # OpenWeather API
 # https://openweathermap.org/api
 # Requires:
@@ -18,7 +20,7 @@ URL = "https://api.openweathermap.org/data/2.5/%s?appid=%s&lat=%s&lon=%s&units=m
 API_KEY = None
 CSE_ID = None
 
-def get_weather(lat, lon):
+def get_weather(lat: float | str, lon: float | str) -> dict[str, Any]:
 	""" Query OpenWeatherMap for current weather conditions.
 	https://openweathermap.org/current
 	"""
@@ -33,7 +35,7 @@ def get_weather(lat, lon):
 
 
 # Not used for weather because doesn't contain "display_location"
-def get_forecast(lat, lon):
+def get_forecast(lat: float | str, lon: float | str) -> dict[str, Any]:
 	""" Query OpenWeatherMap for 5 day / 3 hour forecast
 	https://openweathermap.org/forecast5
 	"""
@@ -47,7 +49,8 @@ def get_forecast(lat, lon):
 		raise RuntimeError("Error (%s): %s" % (f.getcode(), forecast.replace("\n", " ")))
 
 
-def get_dailyforecast(lat, lon, days=5):
+def get_dailyforecast(lat: float | str, lon: float | str,
+	days: int=5) -> dict[str, Any]:
 	""" Query OpenWeatherMap for 16 day / daily forecast data
 	https://openweathermap.org/forecast16
 	:param days: Number of days for which to get a forecast, current max of 16
@@ -62,7 +65,7 @@ def get_dailyforecast(lat, lon, days=5):
 		raise RuntimeError("Error (%s): %s" % (f.getcode(), forecast.replace("\n", " ")))
 
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global API_KEY # oh nooooooooooooooooo
 	API_KEY = bot.getOption("API_KEY", module="openweathermap_api")
 	return True

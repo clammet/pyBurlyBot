@@ -1,3 +1,6 @@
+from typing import Any
+from util.event import Event
+from util.types import BotLike, DatabaseQuery
 # urlinfo module
 
 # Using Requests because easier
@@ -12,28 +15,29 @@ from html import unescape
 # (code - reason) content-type, encoding, size, serversoftware, redirect
 HEAD_RPL = "(%s - %s) %s, %s%s bytes, %s%s"
 TITLE_REGEX = recompile('<title>(.*?)</title>', IGNORECASE|DOTALL)
+GAPI_MODULE: Any = None
 
-def seen_link(event, bot):
+def seen_link(event: Event, bot: BotLike) -> None:
 	match = event.regex_match
 	pos = match.regs[0]
 	url = match.string[pos[0]:pos[1]]
 	bot.dbQuery("""INSERT OR REPLACE INTO urlinfo (source, url) 
 		VALUES (?,?);""", (event.target, url))
 
-def _getURL(event, dbQuery):
+def _getURL(event: Event, dbQuery: DatabaseQuery) -> str | None:
 	row = dbQuery("""SELECT url FROM urlinfo 
 							WHERE source=?;""", (event.target,), fetchone)
 	if not row:
 		return None
 	return row['url']
 
-def lasturl(event, bot):
+def lasturl(event: Event, bot: BotLike) -> None:
 	url = _getURL(event, bot.dbQuery)
 	if not url:
 		return bot.say("Haven't seen any URLs in here.")
 	bot.say(url)
 
-def headers(event, bot):
+def headers(event: Event, bot: BotLike) -> None:
 	""" head [URL]. If no argument is provided the headers of the last URL will be displayed. 
 	Otherwise the title of the provided URL will be displayed."""
 	if not event.argument:
@@ -54,7 +58,7 @@ def headers(event, bot):
 	encoding = "%s, " % resp.encoding if resp.encoding else ""
 	bot.say(HEAD_RPL % (resp.status_code, resp.reason, ctype, encoding, size, server, location) )
 
-def title(event, bot):
+def title(event: Event, bot: BotLike) -> None:
 	""" title [URL]. If no argument is provided the title of the last URL will be displayed. 
 	Otherwise the title of the provided URL will be displayed."""
 	if not event.argument:
@@ -86,7 +90,7 @@ def title(event, bot):
 		bot.say("No title for (%s) type in (%s)." % (ctype, url))
 	resp.close()
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global GAPI_MODULE # oh nooooooooooooooooo
 	
 	bot.dbCheckCreateTable("urlinfo", 

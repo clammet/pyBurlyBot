@@ -1,7 +1,9 @@
+from util.event import Event
+from util.types import BotLike
 #run db query
 from util import Mapping
 
-def admin_dbquery(event, bot):
+def admin_dbquery(event: Event, bot: BotLike) -> None:
 	query = event.argument
 	bot.say("Running: %s" % query)
 	try:

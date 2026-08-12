@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any
+from util.types import BotLike
 ### IN DEVELOPMENT 
 # Cool Steamchat module. Allows relaying between IRC<->Steam, and allows usage of module commands from Steam!
 from json import loads
@@ -21,6 +24,7 @@ from rsa import PublicKey, encrypt
 from util.settings import ConfigException, Settings
 from util.event import Event
 from util import Mapping, commandSplit, functionHelp, pastehelper
+from util.container import Container
 
 # SMALL TODO:
 #	Put outbound in own thread
@@ -67,16 +71,16 @@ COOLDOWN = 15*60 #hour
 
 class SteamIRCBotWrapper:
 	""" Taken mostly from util.wrapper """
-	def __init__(self, event, botcont, steamchat):
+	def __init__(self, event: Event, botcont: Container, steamchat: SteamChat) -> None:
 		self.event = event
 		self._botcont = botcont
 		self._steamchat = steamchat
 		
-	def __getattr__(self, name):
+	def __getattr__(self, name: str) -> Any:
 		if name in self.__dict__: return getattr(self, name)
 		return getattr(self._botcont, name)
 	
-	def say(self, msg, **kwargs):
+	def say(self, msg: str, **kwargs: Any) -> None:
 		print(repr(msg), kwargs)
 		su = self.event.kwargs.get('steamuser')
 		if su:
@@ -92,7 +96,7 @@ class SteamIRCBotWrapper:
 				raise ValueError("Missing dest in say")
 			self.sendmsg(dest, msg, **kwargs)
 	
-	def checkSay(self, msg, **kwargs):
+	def checkSay(self, msg: str, **kwargs: Any) -> bool:
 		su = self.event.kwargs.get('steamuser')
 		if su:
 			strins = kwargs.get("strins")
@@ -106,16 +110,18 @@ class SteamIRCBotWrapper:
 			else:
 				return self._botcont.checkSendMsg(self.event.nick, msg)
 	
-	def isadmin(self, module=None):
+	def isadmin(self, module: str | None=None) -> bool:
 		return False
 		
-	def getOption(self, opt, channel=None, **kwargs):
+	def getOption(self, opt: str, channel: str | bool | None=None,
+		**kwargs: Any) -> Any:
 		return blockingCallFromThread(reactor, self._botcont._settings.getOption, opt, channel=channel, **kwargs)
-	def setOption(self, opt, value, channel=None, **kwargs):
+	def setOption(self, opt: str, value: Any, channel: str | bool | None=None,
+		**kwargs: Any) -> None:
 		blockingCallFromThread(reactor, self._botcont._settings.setOption, opt, value, channel=channel, **kwargs)
 
 	#callback to handle module errors
-	def _moduleerr(self, e):
+	def _moduleerr(self, e: Any) -> None:
 		if isinstance(e, Failure):
 			e.cleanFailure()
 			e.printTraceback()
@@ -133,16 +139,17 @@ class SteamIRCBotWrapper:
 			print("error:", e)
 
 class SteamPoller(Thread):
-	def __init__(self, inq, accesstoken, umqid, msgid):
+	def __init__(self, inq: Queue[tuple[str, tuple[Any, ...]]], accesstoken: str,
+		umqid: str, msgid: str | int) -> None:
 		super().__init__()
 		self.steamchatq = inq
-		self.pollerq = Queue()
+		self.pollerq: Queue[str] = Queue()
 		self.umqid = umqid
 		self.accesstoken = accesstoken
 		self.msgid = msgid
 		self.session = Session()
 		
-	def run(self):
+	def run(self) -> None:
 		pollid = 0
 		d = {"access_token" : self.accesstoken, "umqid" : self.umqid, "message" : self.msgid, 
 			"pollid" : pollid, "sectimeout" : 20, "secidletime" : 10, "use_accountids" : 0}
@@ -173,53 +180,54 @@ class SteamPoller(Thread):
 			pollid += 1
 		print("SHUT DOWN STEAMPOLLER")
 	
-	def stop(self):
+	def stop(self) -> None:
 		self.pollerq.put("QUIT")
 
 class SteamUser:
-	def __init__(self, id, name=None):
+	def __init__(self, id: str, name: str | None=None) -> None:
 		self.id = id
 		self.name = name
-		self.channels = set()
-		self.offlinetime = None
+		self.channels: set[str] = set()
+		self.offlinetime: float | None = None
 		
-	def getName(self):
+	def getName(self) -> str:
 		return self.name if self.name else self.id
 
 # Steam thread
 class SteamChat(Thread):
-	def __init__(self, container, cmdprefix, allowedmodules):
+	def __init__(self, container: Container, cmdprefix: str,
+		allowedmodules: Iterable[str]) -> None:
 		super().__init__()
-		self.cmdQueue = Queue()
+		self.cmdQueue: Queue[tuple[str, tuple[Any, ...]]] = Queue()
 		self.name = "SteamChatThread-%s" % container.network
 		self.container = container
 		self.cmdprefix = cmdprefix
 		self.online = False
-		self.cooldownuntil = 0
+		self.cooldownuntil = 0.0
 		self.oauth = self.container.getOption("oauthtoken", module="steamchat", inreactor=True)
 		# users their friendly name, last offline time and their channels
 		# offline time for allowing users to disconnect/reconnect and still keep listened channels
-		self.users = {} # {userid : SteamUser}
+		self.users: dict[str, SteamUser] = {} # {userid : SteamUser}
 		
-		self.channels = {} # reverse mapping of the above {channel : set(users)}
-		self.offlineusers = set() # for easy checking of temporary offline users
-		self.poller = None
+		self.channels: dict[str, set[SteamUser]] = {} # reverse mapping of the above {channel : set(users)}
+		self.offlineusers: set[SteamUser] = set() # for easy checking of temporary offline users
+		self.poller: SteamPoller | None = None
 		self.sendready = False
-		self.senddict = {}
+		self.senddict: dict[str, Any] = {}
 		
-		self.cmdMap = {}
+		self.cmdMap: dict[str, list[Mapping]] = {}
 		self.allowedmodules = allowedmodules
 		# populate command map after dispatcher has finished loading
 		reactor.callFromThread(reactor.callLater, 22.0, self.populateCommandMap)
 		# start thread later so that previous instances have time to unload
 		reactor.callFromThread(reactor.callLater, 24.0, self.start)
-		self.outbound = OrderedDict() # user : deque
+		self.outbound: OrderedDict[str, deque[str]] = OrderedDict() # user : deque
 		self.lastout = time()
 		self.doout = False
 		self.session = Session()
-		self.channelbacklog = {}
+		self.channelbacklog: dict[str, deque[str]] = {}
 	
-	def populateCommandMap(self):
+	def populateCommandMap(self) -> None:
 		# command map. SOMETHING LIKE THIS SHOULD NEVER BE DONE. GOSH.
 		command_map = self.container._settings.dispatcher.eventmap.get("privmsged", {}).get("command", {})
 		self.cmdMap = {}
@@ -231,7 +239,7 @@ class SteamChat(Thread):
 			if allowed:
 				self.cmdMap[cmd] = allowed
 	
-	def run(self):
+	def run(self) -> None:
 		self.login()
 		t = time()
 		while True:
@@ -282,17 +290,17 @@ class SteamChat(Thread):
 			else:
 				print("LOGGED OUT OF STEAM")
 	
-	def getUser(self, uid):
+	def getUser(self, uid: str) -> SteamUser:
 		return self.users.setdefault(uid, SteamUser(uid))
 		
-	def findUser(self, user):
+	def findUser(self, user: str) -> SteamUser | None:
 		if user in self.users: return self.users[user]
 		else:
 			for u in self.users.values():
 				if u.name == user: return u
 		return None
 	
-	def steamDC(self):
+	def steamDC(self) -> None:
 		# when steam disconnects me, what do (will happen when I request disconnection, 
 		# but this won't have a chance to be called by then because we aren't in the loop anymore.)
 		# I guess we mimick checkAndStopPoll, without the poll stuff
@@ -301,38 +309,42 @@ class SteamChat(Thread):
 		self.senddict.clear()
 		self.cooldownuntil = time() + COOLDOWN
 	
-	def purgeOffline(self):
+	def purgeOffline(self) -> None:
 		t = time()
 		for user in list(self.offlineusers):
-			if t > user.offlinetime + OFFLINE_THRESHOLD:
+			if user.offlinetime is not None and t > user.offlinetime + OFFLINE_THRESHOLD:
 				self.offlineusers.remove(user)
 				for chan in list(user.channels):
 					self.removeUserFromChannel(user, chan)
 				
-	def removeUserFromChannel(self, user, channel, sayIRC=True):
+	def removeUserFromChannel(self, user: SteamUser, channel: str,
+		sayIRC: bool=True) -> None:
 		self.channels[channel].remove(user)
 		if sayIRC: self.ircSay(channel, STOP_SNOOP % (user.getName(), channel))
 		self.steamSay(user.id, "Stopped listening to %s." % channel)
 		user.channels.remove(channel)
 		
-	def ircSay(self, channel, msg, source=None):
+	def ircSay(self, channel: str, msg: str, source: SteamUser | None=None) -> None:
 		if source:
 			msg = FROMSTEAM_FMT % (source.getName(), msg)
 		self.container.sendmsg(channel, msg, steamSource=source)
 	
-	def ircMSG(self, channel, nick, msg, steamSource=None):
+	def ircMSG(self, channel: str, nick: str, msg: str,
+		steamSource: SteamUser | None=None) -> None:
 		msg = FROMIRC_FMT % (channel, nick, msg)
 		self.channelbacklog.setdefault(channel, deque(maxlen=5)).append(msg)
-		users = self.channels.get(channel, [])
+		users: Iterable[SteamUser] = self.channels.get(channel, set())
 		if users:
 			for user in users:
 				if user.getName() != steamSource:
 					self.steamSay(user.id, msg)
 	
 	#handle steam command
-	def steamCMD(self, sourceid, msg):
+	def steamCMD(self, sourceid: str, msg: str) -> None:
 		#stolen from dispatcher
 		command, argument = commandSplit(msg)
+		if command is None:
+			return
 		command = command[len(self.cmdprefix):].lower()
 		u = self.getUser(sourceid)
 		# TODO: Someone should clean this up a bit... probably.
@@ -349,7 +361,7 @@ class SteamChat(Thread):
 					self.channels.setdefault(argument, set()).add(u)
 					self.ircSay(argument, START_SNOOP % (u.getName(), argument))
 					self.steamSay(sourceid, "Listening to (%s)" % argument)
-					backlog = self.channelbacklog.get(argument, [])
+					backlog: Iterable[str] = self.channelbacklog.get(argument, ())
 					if backlog: self.steamSay(sourceid, "\n".join(backlog))
 					return
 		elif command == "leave":
@@ -392,11 +404,11 @@ class SteamChat(Thread):
 			if not cont_or_wrap: cont_or_wrap = SteamIRCBotWrapper(event, self.container, self) # event, botcont, steamchat
 			# massive silliness
 			reactor.callFromThread(self.container._settings.dispatcher._dispatchreally,
-				mapping.function, event, cont_or_wrap)
+				mapping.function, event, cont_or_wrap, self.container._settings.debug)
 			if mapping.priority == 0: break
 	
 	# handle messages from Steam here. Includes commands and such
-	def steamMSG(self, sourceid, msg):
+	def steamMSG(self, sourceid: str, msg: str) -> None:
 		msg = msg.replace("\n", " ")
 		if msg.startswith(self.cmdprefix):
 			# process command
@@ -416,8 +428,9 @@ class SteamChat(Thread):
 					channel = next(iter(user.channels)) # bit silly to just get the only item without pop().add()
 					if channel not in self.container.state.channels:
 						#remove listen channel and give message
+						channels.remove(channel)
 						self.steamSay(sourceid, "I'm not in %s for some reason, "
-							"so you can't send to it and won't be receiving messages from it." % channels.pop(0))
+							"so you can't send to it and won't be receiving messages from it." % channel)
 					else:
 						self.ircSay(channel, msg, user)
 				else:
@@ -430,11 +443,12 @@ class SteamChat(Thread):
 						if channel not in channels:
 							return self.steamSay(sourceid, "You aren't listening to that channel so I can't send to it.")
 						if channel not in self.container.state.channels:
+							channels.remove(channel)
 							return self.steamSay(sourceid, "I'm not in %s for some reason, "
-								"so you can't send to it and won't be receiving messages from it." % channels.pop(0))
+								"so you can't send to it and won't be receiving messages from it." % channel)
 						self.ircSay(channel, msg, user)
 	
-	def steamStatus(self, sourceid, name, online):
+	def steamStatus(self, sourceid: str, name: str, online: bool) -> None:
 		u = self.getUser(sourceid)
 		u.name = name
 		if not online:
@@ -443,19 +457,19 @@ class SteamChat(Thread):
 		else:
 			self.offlineusers.discard(u)
 		
-	def checkAndStopPoll(self):
+	def checkAndStopPoll(self) -> None:
 		if self.poller: 
 			self.poller.stop()
 			self.poller = None
 		self.sendready = False
 		self.senddict.clear()
 
-	def steamSay(self, userid, msg):
+	def steamSay(self, userid: str, msg: str) -> None:
 		print("SENDING TO (%s): %s" % (userid, repr(msg)))
 		self.outbound.setdefault(userid, deque(maxlen=10)).append(msg)
 		self.doout = True
 	
-	def _processOutbound(self):
+	def _processOutbound(self) -> None:
 		try: userid, msgs = self.outbound.popitem(last=False)
 		except KeyError: # special catch in case something weird happens
 			self.doout = False
@@ -485,7 +499,7 @@ class SteamChat(Thread):
 		
 	# login to steamcommunity and get oauth token if not already have.
 	# if oauth token gotten, log in to webchat and start poller
-	def login(self):
+	def login(self) -> None:
 		# get username and password from moduleoptions
 		print("ATTEMPTING LOGIN")
 		self.checkAndStopPoll()
@@ -531,7 +545,7 @@ class SteamChat(Thread):
 		#persist oauth token
 		blockingCallFromThread(reactor, Settings.saveOptions)
 	
-	def listUsers(self, dest):
+	def listUsers(self, dest: str) -> None:
 		users = self.channels.get(dest)
 		if users:
 			if len(users) > 2:
@@ -545,12 +559,12 @@ class SteamChat(Thread):
 		else:
 			self.ircSay(dest, "No one listening in here.")
 
-	def leftIRCChannel(self, channel):
+	def leftIRCChannel(self, channel: str) -> None:
 		#remove all users from channel
 		for u in self.channels.get(channel, []):
 			self.removeUserFromChannel(u, channel, sayIRC=False)
 		
-	def kickUser(self, target, user):
+	def kickUser(self, target: str, user: str) -> None:
 		u = self.findUser(user)
 		if u:
 			if target in u.channels:
@@ -560,16 +574,16 @@ class SteamChat(Thread):
 		else:
 			self.ircSay(target, "Don't know (%s)" % user)
 	
-	def fromIRC(self, func, *args):
+	def fromIRC(self, func: str, *args: Any) -> None:
 		self.cmdQueue.put((func, args))
 		
-	def stop(self):
-		self.cmdQueue.put(("QUIT", None))
+	def stop(self) -> None:
+		self.cmdQueue.put(("QUIT", ()))
 		#self.join()
 
-CHAT_THREADS = {} #network : SteamChat
+CHAT_THREADS: dict[str, SteamChat] = {} #network : SteamChat
 
-def steamchatcmd(event, bot):
+def steamchatcmd(event: Event, bot: BotLike) -> None:
 	""" steamchat [kick user]. steamchat without arguments will display currently joined/listening steam persons.
 	steamchat kick user will kick the supplied user from listening/sending to this channel.
 	"""
@@ -587,11 +601,11 @@ def steamchatcmd(event, bot):
 		if cthread: cthread.fromIRC("listUsers", event.nick if event.isPM() else event.target)
 		else: bot.say("Error: No Steamchat available for this network.")
 
-def doleft(event, bot):
+def doleft(event: Event, bot: BotLike) -> None:
 	cthread = CHAT_THREADS.get(bot.network)
 	if cthread: cthread.fromIRC("leftIRCChannel", event.target)
 	
-def relaymsg(event, bot):
+def relaymsg(event: Event, bot: BotLike) -> None:
 	if not event.isPM():
 		cthread = CHAT_THREADS.get(bot.network)
 		if cthread: cthread.fromIRC("ircMSG", event.target, event.nick, event.msg)
@@ -599,24 +613,27 @@ def relaymsg(event, bot):
 # TODO: This basically uses a minimal version of assembleMsgWLen without the "Len" part and unicode trimming.
 #       Don't know if that means we actually need to refactor stuff, or just keep that in mind.
 # THINGS PROCESSING SENDMSG MUST NOT RAISE EXCEPTION EVER
-def processBotSendmsg(event, bot):
+def processBotSendmsg(event: Event, bot: BotLike) -> None:
 	try:
 		if not event.isPM():
 			cthread = CHAT_THREADS.get(bot.network)
 			if cthread:
+				event_msg = event.msg
+				if event_msg is None:
+					return
 				strins = event.kwargs.get("strins")
 				if strins:
 					joinsep = event.kwargs.get("joinsep")
-					if joinsep is not None: msg = event.msg.format(joinsep.join(strins))
-					else: msg = event.msg.format(*strins)
-				else: msg = event.msg
+					if joinsep is not None: msg = event_msg.format(joinsep.join(strins))
+					else: msg = event_msg.format(*strins)
+				else: msg = event_msg
 				steamSource = event.kwargs.get("steamSource")
 				cthread.fromIRC("ircMSG", event.target, event.nick, msg, steamSource)
 	except Exception:
 		print("SENDMSG EVENT EXCEPTION")
 		print_exc()
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global CHAT_THREADS # oh nooooooooooooooooo
 	if bot.getOption("enablestate"):
 		if bot.network not in CHAT_THREADS:
@@ -628,7 +645,7 @@ def init(bot):
 		raise ConfigException('steamchat module requires "enablestate" option')
 	return True
 	
-def unload():
+def unload() -> None:
 	for cthread in CHAT_THREADS.values():
 		cthread.stop()
 

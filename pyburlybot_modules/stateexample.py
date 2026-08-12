@@ -1,9 +1,11 @@
+from util.event import Event
+from util.types import BotLike
 #state example
 from util import Mapping, commandSplit
 
 #Note: Must iterate over dicts with .keys()
 
-def statecommand(event, bot):
+def statecommand(event: Event, bot: BotLike) -> None:
 	command, args = commandSplit(event.argument)
 	
 	if command == "channel":

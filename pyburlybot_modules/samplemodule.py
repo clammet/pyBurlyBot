@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 #samplemodule
 from re import compile as recompile
 from util import Mapping, commandSplit, functionHelp
@@ -9,15 +11,15 @@ OPTIONS = {
 	"ignorestarting" : (list, "Lines starting with items in this list will be ignored.", []),
 }
 
-def repeater(event, bot):
+def repeater(event: Event, bot: BotLike) -> None:
 	#repeat things
 	if bot.getOption("repeat", module="samplemodule"):
 		bot.say("%s : %s" % (event.nick, event.msg))
 
-def printer(event, bot):
+def printer(event: Event, bot: BotLike) -> None:
 	print(repr(event.msg))
 
-def samplecommand(event, bot):
+def samplecommand(event: Event, bot: BotLike) -> None:
 	""" samplecommand [option] [argument]. samplecommand will do things depending on what option is used. 
 	Available option: something, dothing
 	|samplecommand something [argument]: will output "something", and if argument is present, will follow.
@@ -35,7 +37,7 @@ def samplecommand(event, bot):
 		bot.say(functionHelp(samplecommand))
 
 #init should always be here to setup needed DB tables or objects or whatever
-def init(bot):
+def init(bot: BotLike) -> bool:
 	"""Do startup module things. This sample just checks if table exists. If not, creates it."""
 	bot.dbCheckCreateTable('sample_table',
 		'''create table sample_table(

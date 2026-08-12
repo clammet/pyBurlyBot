@@ -1,13 +1,16 @@
+from typing import Any
+from util.event import Event
+from util.types import BotLike
 # word tools
 # 
 from util import Mapping, functionHelp
 from util.settings import ConfigException
 
 REQUIRES = ("wordsapi")
-WORD_API = None
+WORD_API: Any = None
 
 
-def spelling(event, bot, skipSearch=False):
+def spelling(event: Event, bot: BotLike, skipSearch: bool=False) -> None:
 	""" spelling [query]. Returns spelling suggestions for query."""
 	if not event.argument:
 		return bot.say(functionHelp(spelling))
@@ -27,7 +30,7 @@ def spelling(event, bot, skipSearch=False):
 			return bot.say("\x02%s\x02 is spelt wrong but I don't have any suggestions, sorry." % event.argument)
 
 
-def dictionary(event, bot):
+def dictionary(event: Event, bot: BotLike) -> None:
 	""" dictionary [query]. Returns definitions for query."""
 	if not event.argument: return bot.say(functionHelp(dictionary))
 	defs = WORD_API.word_search(event.argument)
@@ -42,7 +45,7 @@ def dictionary(event, bot):
 	return bot.say(". ".join(output))
 
 
-def synonym(event, bot):
+def synonym(event: Event, bot: BotLike) -> None:
 	""" synonym [query]. Returns synonyms for query."""
 	if not event.argument:
 		return bot.say(functionHelp(synonym))
@@ -55,7 +58,7 @@ def synonym(event, bot):
 		return bot.say("Synonyms for (%s): %s" % (event.argument, ", ".join(syns)))
 
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global WORD_API # oh nooooooooooooooooo
 
 	WORD_API = bot.getModule("wordsapi")

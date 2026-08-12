@@ -4,6 +4,8 @@ https://code.google.com/p/buttbot/
 
 This is ported almost directly from old BBM
 """
+from util.event import Event
+from util.types import BotLike
 
 from util import Mapping, pastehelper, argumentSplit, fetchone
 import re
@@ -24,7 +26,7 @@ STOPWORDS = (r'[^A-Za-z]+', 'butt', 'a', 'an', 'and', 'or', 'but', 'it', 'is',
 RE_STOPWORDS = re.compile(r'^\W*(' + r'|'.join(STOPWORDS) + r')\W*$',
 							flags=re.IGNORECASE)
 
-def butt(event, bot):
+def butt(event: Event, bot: BotLike) -> None:
 	""" butt [input].  Use the power of computing to make a sentence dumber.
 	Replace random syllables of _input_ with 'butt', courtesy of Knuth:
 	https://en.wikipedia.org/wiki/Hyphenation_algorithm
@@ -44,7 +46,7 @@ def butt(event, bot):
 	else:
 		bot.say(buttify(event.argument))
 
-def butts(event, bot):
+def butts(event: Event, bot: BotLike) -> None:
 	""" butts [~del] [input].  Add or delete an entry in the bestbutts quote database.
 	If no input is supplied the entire database will be dumped.
 	e.g. .butts <@bbm> butt is love
@@ -53,7 +55,7 @@ def butts(event, bot):
 	if not event.argument:
 		items = bot.dbQuery('''SELECT id, butt FROM butts;''')
 		if items:
-			pastehelper(bot, basemsg="butts: %s", force=True, altmsg="%s", items=("%s: %s" % (row[0], row[1]) for row in items))
+			pastehelper(bot, basemsg="butts: %s", force=True, altmsg="%s", items=["%s: %s" % (row[0], row[1]) for row in items])
 		else:
 			bot.say("no butts.")
 	else:
@@ -66,7 +68,7 @@ def butts(event, bot):
 			bot.dbQuery('''INSERT INTO butts (butt) VALUES(?);''', (event.argument,))
 			bot.say("OK.")
 
-def rand_butt(event, bot):
+def rand_butt(event: Event, bot: BotLike) -> None:
 	if event.command: return
 	msg = event.msg
 	if not msg or not len(msg) > 20:
@@ -79,7 +81,7 @@ def rand_butt(event, bot):
 		return
 	bot.later(random.randint(2, 8), bot.say, result)
 
-def buttify(msg):
+def buttify(msg: str) -> str:
 	"""Return buttified msg."""
 	buttable_words = [word for word in msg.split() if not RE_STOPWORDS.match(word)]
 	butt_passes = len(buttable_words) // 8 + 1
@@ -109,9 +111,11 @@ def buttify(msg):
 RE_SPLIT_PUNCTUATION = re.compile(r'^([^A-Za-z]*)(.*?)([xXsS]?[^A-Za-z]*)$')
 
 
-def _butt_word(word, butt_pass=0):
+def _butt_word(word: str, butt_pass: int=0) -> str:
 	# Split into left punctuation, word, right punctuation on first pass
-	lp, actual_word, rp = RE_SPLIT_PUNCTUATION.match(word).groups()
+	match = RE_SPLIT_PUNCTUATION.match(word)
+	assert match is not None
+	lp, actual_word, rp = match.groups()
 
 	hyphenated_parts = hyphenate_word(actual_word)
 	if butt_pass > 0 and len(hyphenated_parts) == 1:
@@ -152,7 +156,7 @@ def _butt_word(word, butt_pass=0):
 	return lp + actual_word + rp
 
 
-def _weighted_butt_words(sortedlist):
+def _weighted_butt_words(sortedlist: list[str]) -> list[str]:
 	weight = len(sortedlist)
 	weighted_butt_words = []
 	for word in sortedlist:
@@ -160,7 +164,7 @@ def _weighted_butt_words(sortedlist):
 		weight -= 1
 	return weighted_butt_words
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	bot.dbCheckCreateTable("butts", 
 		'''CREATE TABLE butts(
 			id INTEGER PRIMARY KEY,

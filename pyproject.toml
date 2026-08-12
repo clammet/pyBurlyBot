@@ -1,0 +1,15 @@
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["ANN", "F"]
+ignore = ["ANN401"]
+
+[tool.mypy]
+python_version = "3.14"
+explicit_package_bases = true
+ignore_missing_imports = true
+allow_untyped_globals = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_return_any = false

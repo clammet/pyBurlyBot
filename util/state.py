@@ -1,3 +1,7 @@
+from collections.abc import Iterable
+from typing import Any
+
+from .helpers import PrefixMap
 #preliminary State
 
 # State MUST be READ ONLY from modules.
@@ -8,18 +12,18 @@
 from time import time
 
 class Channel:
-	def __init__(self, name, modes = None):
+	def __init__(self, name: str, modes: Any = None) -> None:
 		self.name = name
-		self.users = {} # [nick] = User
-		self.ops = set() # set of nicks
-		self.voices = set() # set of nicks
+		self.users: dict[str, User] = {} # [nick] = User
+		self.ops: set[str] = set() # set of nicks
+		self.voices: set[str] = set() # set of nicks
 		
 		self.moderated = False
 		self.inviteonly = False
 		self.secret = False
-		self.key = None
+		self.key: str | None = None
 		self.private = False
-		self.limit = None
+		self.limit: str | None = None
 		self.optopic = False
 		self.noextmsg = False
 		
@@ -27,15 +31,15 @@ class Channel:
 		# If you want this to be fully populated MODE #channel <b,e,I> will need to be issued
 		# Also NOTE: exceptlist is a list of ban exceptions, invitelist is a list of users
 		#	exempted from invite only.
-		self.banlist = {} # [host] = nickwhosetban, time
-		self.exceptlist = {} # [host] = nickwhosetexcept, time
-		self.invitelist = {} # [host] = nickwhosetinvite, time
+		self.banlist: dict[str, tuple[str | None, int]] = {} # [host] = nickwhosetban, time
+		self.exceptlist: dict[str, tuple[str | None, int]] = {} # [host] = nickwhosetexcept, time
+		self.invitelist: dict[str, tuple[str | None, int]] = {} # [host] = nickwhosetinvite, time
 		
 		self.topic = ""
 		# (nick, ident, host, hostmask)
-		self.topicsetby = (None, None, None, None)
+		self.topicsetby: tuple[str | None, str | None, str | None, str | None] = (None, None, None, None)
 		
-	def _resetModeIs(self):
+	def _resetModeIs(self) -> None:
 		self.moderated = False
 		self.inviteonly = False
 		self.secret = False
@@ -45,26 +49,28 @@ class Channel:
 		self.optopic = False
 		self.noextmsg = False
 
-	def _adduser(self, user, modes = None):
+	def _adduser(self, user: User, modes: Any = None) -> None:
 		if user.nick not in self.users:
 			self.users[user.nick] = user
 		user.channels.add(self.name)
 			
-	def _changeuser(self, old, new):
+	def _changeuser(self, old: str, new: str) -> None:
 		self.users[new] = self.users[old]
 		del self.users[old]
 		
-	def _removeuser(self, nick):
+	def _removeuser(self, nick: str) -> None:
 		if nick in self.users:
 			del self.users[nick]
 	
-	def _settopic(self, topic, nick, ident, host, hostmask):
+	def _settopic(self, topic: str, nick: str | None, ident: str | None,
+		host: str | None, hostmask: str | None) -> None:
 		self.topic = topic
 		self.topicsetby = (nick, ident, host, hostmask)
 
 class User:
-	def __init__(self, nick, ident=None, host=None, hostmask=None):
-		self.channels = set()
+	def __init__(self, nick: str, ident: str | None=None, host: str | None=None,
+		hostmask: str | None=None) -> None:
+		self.channels: set[str] = set()
 		self.nick = nick
 		self.ident = ident
 		self.host = host
@@ -73,7 +79,7 @@ class User:
 	# TODO: Should we really be caring enough to update hostmaks and stuff
 	#	whenever we see the user do something?
 	#	Should we actually be tracking the hostname and stuff? or just the nick?
-	def _refresh(self, ident, host, hostmask):
+	def _refresh(self, ident: str | None, host: str | None, hostmask: str | None) -> None:
 		if ident and self.ident != ident:
 			self.ident = ident
 		if host and self.host != host:
@@ -84,18 +90,19 @@ class User:
 
 # TODO: function_renaming_cuz_conventions ~grifftask
 class Network:
-	def __init__(self, network):
+	def __init__(self, network: str) -> None:
 		self.name = network
-		self.users = {} # [nick] = User
-		self.channels = {}
-		self.motd = None
+		self.users: dict[str, User] = {} # [nick] = User
+		self.channels: dict[str, Channel] = {}
+		self.motd: str | None = None
+		self.prefixmap: PrefixMap
 	
-	def _resetnetwork(self):
+	def _resetnetwork(self) -> None:
 		#clear channels
 		self.channels = {}
 		self.users = {}
 		
-	def _nukechannel(self, channel):
+	def _nukechannel(self, channel: str) -> None:
 		if channel in self.channels:
 			for user in self.channels[channel].users.values():
 				user.channels.remove(channel)
@@ -104,21 +111,22 @@ class Network:
 					del self.users[user.nick]
 			del self.channels[channel]
 
-	def _userquit(self, nick):
+	def _userquit(self, nick: str) -> None:
 		if nick in self.users:
 			u = self.users[nick]
 			for channel in u.channels:
 				self.channels[channel]._removeuser(u.nick)
 			del self.users[nick]
 
-	def _joinchannel(self, channel):
+	def _joinchannel(self, channel: str) -> None:
 		self._nukechannel(channel)
 		self.channels[channel] = Channel(channel)
 
-	def _leavechannel(self, channel):
+	def _leavechannel(self, channel: str) -> None:
 		self._nukechannel(channel)
 
-	def _userjoin(self, channel, nick, ident=None, host=None, hostmask=None):
+	def _userjoin(self, channel: str, nick: str, ident: str | None=None,
+		host: str | None=None, hostmask: str | None=None) -> None:
 		if nick not in self.users:
 			u = User(nick, ident, host, hostmask)
 			self.users[nick] = u
@@ -128,22 +136,28 @@ class Network:
 		self.channels[channel]._adduser(u)
 
 	@staticmethod
-	def _processlist(l):
+	def _processlist(
+		l: Iterable[tuple[str, Any, str | int, str | None]],
+	) -> dict[str, tuple[str | None, int]]:
 		d = {}
 		for (mask, _, t, nick) in l:
 			d[mask] = (nick, int(t))
 		return d
 	
-	def _addinvites(self, channel, invitelist):
+	def _addinvites(self, channel: str,
+		invitelist: Iterable[tuple[str, Any, str | int, str | None]]) -> None:
 		self.channels[channel].invitelist = self._processlist(invitelist)
 	
-	def _addexcepts(self, channel, exceptlist):
+	def _addexcepts(self, channel: str,
+		exceptlist: Iterable[tuple[str, Any, str | int, str | None]]) -> None:
 		self.channels[channel].exceptlist = self._processlist(exceptlist)
 		
-	def _addbans(self, channel, banlist):
+	def _addbans(self, channel: str,
+		banlist: Iterable[tuple[str, Any, str | int, str | None]]) -> None:
 		self.channels[channel].banlist = self._processlist(banlist)
 
-	def _userrename(self, oldnick, newnick, ident, host, hostmask):
+	def _userrename(self, oldnick: str, newnick: str, ident: str | None,
+		host: str | None, hostmask: str | None) -> None:
 		user = self.users[oldnick]
 		user.nick = newnick
 		user._refresh(ident, host, hostmask)
@@ -153,7 +167,8 @@ class Network:
 		for chan in user.channels:
 			self.channels[chan]._changeuser(oldnick, newnick)
 
-	def _userpart(self, channel, nick, ident=None, host=None, hostmask=None):
+	def _userpart(self, channel: str, nick: str, ident: str | None=None,
+		host: str | None=None, hostmask: str | None=None) -> None:
 		if nick in self.users:
 			u = self.users[nick]
 			self.channels[channel]._removeuser(u.nick)
@@ -170,7 +185,9 @@ class Network:
 	# TODO: This could probably be less wordly, also check if KeyErrors and pop's
 	#	will present a problem
 	# TODO: also allow tracking of current bot user modes
-	def _modechange(self, channel, nick, added, removed, reset=True):
+	def _modechange(self, channel: str, nick: str | None,
+		added: Iterable[tuple[str, str]], removed: Iterable[tuple[str, str]],
+		reset: bool=True) -> None:
 		c = self.channels[channel]
 		if reset: c._resetModeIs()
 		for mode, arg in added:
@@ -231,10 +248,11 @@ class Network:
 				try: c.voices.remove(arg)
 				except KeyError: pass
 
-	def _settopic(self, channel, newtopic, nick=None, ident=None, host=None, hostmask=None):
+	def _settopic(self, channel: str, newtopic: str, nick: str | None=None,
+		ident: str | None=None, host: str | None=None, hostmask: str | None=None) -> None:
 		self.channels[channel]._settopic(newtopic, nick, ident, host, hostmask=None)
 		
-	def _addusers(self, channel, users):
+	def _addusers(self, channel: str, users: Iterable[str]) -> None:
 		for nick in users:
 			prefix = nick[0]
 			if prefix in self.prefixmap.nickprefixes:

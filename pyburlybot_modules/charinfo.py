@@ -1,3 +1,5 @@
+from util.event import Event
+from util.types import BotLike
 # charinfo
 # character info module. Information about unicode characters.
 
@@ -16,12 +18,12 @@ RPLFORMAT = "U+%04X %s (%s)"
 # hex(ord(u"\u30F5"))
 REGHEX = compile_re("^[0-9A-F]{4}$", IGNORECASE)
 
-def _getname(c):
+def _getname(c: str) -> str:
 	try: return name(c)
 	except ValueError: return "NO NAME"
 	
 
-def funicode(event, bot):
+def funicode(event: Event, bot: BotLike) -> None:
 	""" unicode [character(s)/description/hex]. Displays information about provided characters (limit of 3,) 
 	or does a search on the character description or provides information on the character indexed by the given hexidecimal."""
 	arg = event.argument

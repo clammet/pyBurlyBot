@@ -1,9 +1,12 @@
+from typing import Any
+from util.event import Event
+from util.types import BotLike
 # Google search module
 
 from util import Mapping, functionHelp
 
 REQUIRES = ("googleapi",)
-GAPI_MODULE = None
+GAPI_MODULE: Any = None
 
 # title: snippet (url)
 RESULT_SPELL_TEXT = "(SP: %s?) {0}: {1} (%s)"
@@ -17,7 +20,7 @@ RESULT_IMG2 = ", %s (%s)"
 
 NUM_IMGS = 4
 
-def google(event, bot):
+def google(event: Event, bot: BotLike) -> None:
 	""" google searchterm. Will search Google using the provided searchterm."""
 	if not event.argument: return bot.say(functionHelp(google))
 	spelling, results = GAPI_MODULE.google(event.argument)
@@ -34,13 +37,13 @@ def google(event, bot):
 		else:
 			bot.say("No results found.")
 
-def google_image(event, bot):
+def google_image(event: Event, bot: BotLike) -> None:
 	""" gis searchterm. Will search Google images using the provided searchterm."""
 	if not event.argument: return bot.say(functionHelp(google_image))
 	spelling, results = GAPI_MODULE.google_image(event.argument, NUM_IMGS)
 	#TODO: consider displaying img stats like file size and resolution?
 	if results:
-		entries = []
+		entries: list[str] = []
 		# TODO: the following should probably be handled in the smart unicode cropping thing
 		#	or in a smarter generic result splitter thing.
 		# TODO: (also) this is basically double iterating over the results. Griff fix later please, thanks.
@@ -61,7 +64,7 @@ def google_image(event, bot):
 		else:
 			bot.say("No results found.")
 
-def init(bot):
+def init(bot: BotLike) -> bool:
 	global GAPI_MODULE # oh nooooooooooooooooo
 	
 	GAPI_MODULE = bot.getModule("googleapi")

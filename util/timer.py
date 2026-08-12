@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from typing import Any
 #timer.py
 
 # suggested use would be for an alarm module or somesuch.
@@ -23,7 +25,8 @@ class TimerNotFound(Exception):
 
 class Timer:
 	# reps <= 0 means forever
-	def __init__(self, name, interval, f, reps=1, startnow=False, *args, **kwargs):
+	def __init__(self, name: str, interval: float, f: Callable[..., Any], reps: int=1,
+		startnow: bool=False, *args: Any, **kwargs: Any) -> None:
 		self.name = name
 		self.f = f
 		self.kwargs = kwargs
@@ -33,7 +36,7 @@ class Timer:
 		self.lc = LoopingCall(Timers.runTimer, self)
 		self.lc.start(interval, startnow)
 
-	def restart(self):
+	def restart(self) -> None:
 		try:
 			self.lc.stop()
 		except AssertionError:
@@ -42,7 +45,7 @@ class Timer:
 
 
 class TimerInfo:
-	def __init__(self, timer):
+	def __init__(self, timer: Timer) -> None:
 		self.name = timer.name
 		self.f = timer.f
 		self.kwargs = timer.kwargs
@@ -51,10 +54,11 @@ class TimerInfo:
 
 
 class Timers:
-	timers = {}
+	timers: dict[str, Timer] = {}
 
 	@classmethod
-	def _addTimer(cls, name, interval, f, reps=1, startnow=False, *args, **kwargs):
+	def _addTimer(cls, name: str, interval: float, f: Callable[..., Any], reps: int=1,
+		startnow: bool=False, *args: Any, **kwargs: Any) -> bool:
 		if name in cls.timers:
 			raise TimerExists("Timer (%s) already exists." % name)
 		else:
@@ -63,7 +67,8 @@ class Timers:
 
 	# _timers are for internal use only
 	@classmethod
-	def addtimer(cls, name, interval, f, reps=1, startnow=False, *args, **kwargs):
+	def addtimer(cls, name: str, interval: int | float, f: Callable[..., Any], reps: int=1,
+		startnow: bool=False, *args: Any, **kwargs: Any) -> bool:
 		#kinda want to use _ prefix for internal things like DBcommit
 		try:
 			if name.startswith("_"):
@@ -78,7 +83,7 @@ class Timers:
 				return blockingCallFromThread(reactor, cls._addTimer, name, float(interval), f, int(reps), startnow, *args, **kwargs)
 
 	@classmethod
-	def _deltimer(cls, name):
+	def _deltimer(cls, name: str) -> bool:
 		if name in cls.timers:
 			#maybe add tryexcept here incase timer already finished
 			try: cls.timers[name].lc.stop()
@@ -89,7 +94,7 @@ class Timers:
 			raise TimerNotFound("Timer (%s) not found." % name)
 
 	@classmethod
-	def deltimer(cls, name):
+	def deltimer(cls, name: str) -> bool:
 		try:
 			if name.startswith("_"):
 				raise TimerInvalidName("Invalid name (%s)." % name)
@@ -102,7 +107,7 @@ class Timers:
 			return blockingCallFromThread(reactor, cls._deltimer, name)
 
 	@classmethod
-	def _restarttimer(cls, name):
+	def _restarttimer(cls, name: str) -> None:
 		if name in cls.timers:
 			cls.timers[name].restart()
 		else:
@@ -110,7 +115,7 @@ class Timers:
 
 
 	@classmethod
-	def restarttimer(cls, name):
+	def restarttimer(cls, name: str) -> None:
 		try:
 			if name.startswith("_"):
 				raise TimerInvalidName("Invalid name (%s)." % name)
@@ -120,7 +125,7 @@ class Timers:
 
 	#run the desired function in a thread but manage the timer in the reactor
 	@classmethod
-	def runTimer(cls, timerobj):
+	def runTimer(cls, timerobj: Timer) -> None:
 		reactor.callInThread(timerobj.f, *timerobj.args, **timerobj.kwargs)
 		if timerobj.reps > 0:
 			timerobj.reps -= 1
@@ -129,7 +134,7 @@ class Timers:
 				del cls.timers[timerobj.name]
 
 	@classmethod
-	def _stopall(cls):
+	def _stopall(cls) -> None:
 		for timername in cls.timers:
 			try:
 				cls.timers[timername].lc.stop()
@@ -137,18 +142,18 @@ class Timers:
 				continue
 
 	@classmethod
-	def _getTimers(cls):
+	def _getTimers(cls) -> dict[str, TimerInfo]:
 		d = {}
 		for t in cls.timers:
 			d[t] = TimerInfo(cls.timers[t])
 		return d
 
 	@classmethod
-	def getTimers(cls):
+	def getTimers(cls) -> dict[str, TimerInfo]:
 		return blockingCallFromThread(reactor, cls._getTimers)
 
 	@classmethod
-	def _delPrefix(cls, prefix):
+	def _delPrefix(cls, prefix: str) -> None:
 		for timername in list(cls.timers.keys()):
 			if timername.startswith(prefix):
 				try: cls.timers[timername].lc.stop()
@@ -156,5 +161,5 @@ class Timers:
 				del cls.timers[timername]
 
 	@classmethod
-	def delPrefix(cls, prefix):
+	def delPrefix(cls, prefix: str) -> None:
 		return blockingCallFromThread(reactor, cls._delPrefix, prefix)
