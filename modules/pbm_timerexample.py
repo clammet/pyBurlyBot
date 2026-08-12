@@ -11,7 +11,7 @@ def timers(event, bot):
 	
 	if command == "show":
 		bot.say("Timers:")
-		for timer in Timers.getTimers().itervalues():
+		for timer in Timers.getTimers().values():
 			bot.say(" - %s: reps = %s, delay = %s, f = %s" % (timer.name, timer.reps, timer.interval, timer.f))
 		
 	elif command == "add":

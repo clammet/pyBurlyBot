@@ -3,7 +3,7 @@
 #it wraps actual botinst functions to limit the scope of what functions modules have access to within botinstance
 #it also holds a queue for messages attempted to be sent while there is no current botinstance
 
-from Queue import Queue, Empty
+from queue import Queue, Empty
 from collections import deque
 from time import time, sleep
 from functools import partial
@@ -26,26 +26,26 @@ class WaitData:
 		self.done = False
 		self.q = Queue()
 
-		# Coerce string/unicode to a set and force lower
+		# Coerce a string to a set and force lower
 		# all event_types are lower in lookups/dispatch
 		if isIterable(interestede):
 			self.interestede = set(x.lower() for x in interestede)
 		elif interestede:
-			self.interestede = set((interestede.lower(),))
+			self.interestede = {interestede.lower()}
 		else:
-			self.interestede = set((None,))
+			self.interestede = {None}
 
 		if isIterable(stope):
 			self.stope = set(x.lower() for x in stope)
 		elif interestede:
-			self.stope = set((stope.lower(),))
+			self.stope = {stope.lower()}
 		else:
-			self.stope = set((None,))
+			self.stope = {None}
 
 class Container:
 	# BurlyBot methods that should be waited on, and returned value of
-	BLOCKINGCALLS = set([BurlyBot.checkSendMsg.__name__, BurlyBot.assembleMsgWLen.__name__,
-		BurlyBot.calcAvailableMsgLength.__name__])
+	BLOCKINGCALLS = {BurlyBot.checkSendMsg.__name__, BurlyBot.assembleMsgWLen.__name__,
+		BurlyBot.calcAvailableMsgLength.__name__}
 
 	def __init__(self, settings):
 		self.network = settings.serverlabel
@@ -65,7 +65,7 @@ class Container:
 			attr = getattr(BurlyBot, name) #raise if doesn't have
 			if self._botinst:
 				attr = getattr(self._botinst, name)
-				if hasattr(attr, '__call__'):
+				if callable(attr):
 					# check if we need to blocking call or not:
 					if name in self.BLOCKINGCALLS:
 						return partial(blockingCallFromThread, reactor, attr)
@@ -74,7 +74,7 @@ class Container:
 				else:
 					return attr
 			else:
-				if hasattr(attr, '__call__'):
+				if callable(attr):
 					# return function to queue the real method call
 					return partial(reactor.callFromThread, self._queuer, name)
 				else:
@@ -100,7 +100,7 @@ class Container:
 		if self._botinst:
 			while self._outqueue:
 				outbound = self._outqueue.popleft()
-				print "PROCESSING QUEUED METHODS"
+				print("PROCESSING QUEUED METHODS")
 				# These will always be BurlyBot functions so let's do some magic.
 				# There shouldn't be any AttributeError, and if there is, bad luck I guess.
 				# This should always be called from inside the reactor so don't need to pass it to the reactor
@@ -146,7 +146,7 @@ class Container:
 			e.cleanFailure()
 			e.printTraceback()
 		else:
-			print "error:", e
+			print("error:", e)
 	
 	# stop event optional since you can just bail out of the generator if you know you have all
 	# the things you want
@@ -156,7 +156,7 @@ class Container:
 	# generator.close() if you suspect that your function won't be finished for some time after bailing from a generator.
 	# BIG WARNING: iterate over the generator with something like "for e in bot.send_and_wait(...
 	#	May leak very fast if you have unhandled exceptions inside the loop, (the above mitigates this I think...)
-	def send_and_wait(self, interestede, stope=[], timeout=10, f=None, fargs=[], **kwargs):
+	def send_and_wait(self, interestede, stope=(), timeout=10, f=None, fargs=(), **kwargs):
 		"""This method will block and yield events as they come..."""
 		if not f:
 			raise ValueError("Missing function")
@@ -215,7 +215,7 @@ class Container:
 
 # provide special container to use when feeding "init()" of modules
 # doesn't try to call methods inside reactor because already inside reactor
-class SetupContainer(object):
+class SetupContainer:
 	def __init__(self, realcontainer):
 		self.container = realcontainer
 		self.network = realcontainer.network
@@ -241,10 +241,3 @@ class SetupContainer(object):
 	
 	def getAddon(self, addonname):
 		return self.container._getAddon(addonname)
-	# do not do the following so we don't risk freezing in reload
-	# means need to duplicate needed items from Container in this...
-	#~ def __getattr__(self, name):
-		#~ if name in self.__dict__: 
-			#~ return getattr(self, name)
-		#~ else:
-			#~ return getattr(self.container, name)

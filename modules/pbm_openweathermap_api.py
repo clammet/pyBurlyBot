@@ -4,12 +4,12 @@
 #     API_KEY: https://openweathermap.org/appid
 #     Working location module
 
-from urllib2 import urlopen
+from urllib.request import urlopen
 from json import load
 from util.settings import ConfigException
 
 OPTIONS = {
-	"API_KEY" : (unicode, "API key for use with Weather Underground services.", u"not_a_key"),
+	"API_KEY" : (str, "API key for use with Weather Underground services.", "not_a_key"),
 }
 
 # key, features, lat, lon

@@ -1,17 +1,18 @@
 # GDQ
 
 from util import Mapping, argumentSplit
-from urllib2 import build_opener, HTTPError
+from urllib.request import build_opener
+from urllib.error import HTTPError
 from lxml.html import parse
 from json import load
 from time import gmtime, strptime
 from calendar import timegm # silly python... I just want UTC seconds
-from util import Timers, TimerExists
+from util import Timers
 from re import compile as re_compile
 
 
 OPTIONS = {
-	"TWITCH_CLIENTID" : (unicode, "Client ID for use in Twitch API calls.", u""),
+	"TWITCH_CLIENTID" : (str, "Client ID for use in Twitch API calls.", ""),
 }
 
 GDQ_URL = "https://gamesdonequick.com"
@@ -23,7 +24,7 @@ LOOP_INTERVAL = 120.0 # Seconds
 REPEAT_NOTIFY_TIME = 60*30 # 30mins between same game notifies
 R_SCHEDULE_SUBLINK = re_compile(r'href="?(/?schedule/[^"]+)')
 
-FORMAT = u"{0}, GAME ({1}) IS AVAILABLE."
+FORMAT = "{0}, GAME ({1}) IS AVAILABLE."
 
 def _searchGame(data, title):
 	# try searching for incorrect name in timetable take 3:
@@ -48,8 +49,8 @@ def modifyNameIter(gamename):
 		for x in (gamename.replace(":", ""), gamename.split(":")[0]):
 			yield x
 		if "two" in gamename: yield gamename.replace(":", "").replace("two", "2")
-	if u"\u2013" in gamename:
-		yield gamename.split(u"\u2013")[0].strip()
+	if "\u2013" in gamename:
+		yield gamename.split("\u2013")[0].strip()
 	if "two" in gamename:
 		yield gamename.replace("two", "2")
 	if "!" in gamename:
@@ -92,7 +93,7 @@ def gdq(event, bot):
 		# Quick and dirty regex to check for and grab the first mentioned subpage, which is assumed to be the latest GDQ event
 		schedule_url = GDQ_URL + '/schedule'
 		f = o.open(schedule_url)
-		raw_content = f.read()
+		raw_content = f.read().decode("utf-8", "replace")
 		match = R_SCHEDULE_SUBLINK.search(raw_content)
 		if match:
 			schedule_url = GDQ_URL + match.group(1)
@@ -117,7 +118,7 @@ def gdq(event, bot):
 		if eta:
 			curr = timegm(gmtime())
 			neta = timegm(strptime(eta, "%H:%M:%S")) - timegm(strptime("0:00:00", "%H:%M:%S"))
-			eta = "%s/%s" % (eta.lstrip("0:")[:-3], (neta - (curr-gstart))/60)
+			eta = "%s/%s" % (eta.lstrip("0:")[:-3], (neta - (curr-gstart))//60)
 		else: eta = "?"
 	if not upcoming: upcoming = ["Don't know"]
 	bot.say(RPL % (game, eta, "http://www.twitch.tv/gamesdonequick/popout", "https://gamesdonequick.com/schedule"),
@@ -136,8 +137,8 @@ def check_games_callback(bot=None):
 		f = o.open(TWITCH_API_URL)
 	except HTTPError as err:
 		if err.code == 410:
-			print("Request to '%r' received reply 'HTTP 410 - Gone'. \
-				This is typically a temporary failure." % TWITCH_API_URL)
+			print(("Request to '%r' received reply 'HTTP 410 - Gone'. \
+				This is typically a temporary failure." % TWITCH_API_URL))
 		else:
 			raise err
 	game = "Don't know"

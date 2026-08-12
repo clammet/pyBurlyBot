@@ -2,23 +2,21 @@
 
 # Using Requests because easier
 
-from util import Mapping, commandSplit, functionHelp, fetchone, coerceToUnicode, URLREGEX
-from re import compile as recompile, IGNORECASE, DOTALL, UNICODE
+from util import Mapping, fetchone, URLREGEX
+from re import compile as recompile, IGNORECASE, DOTALL
 
 from requests import head, get
 
-from time import strftime, strptime
-from HTMLParser import HTMLParser
+from html import unescape
 
 # (code - reason) content-type, encoding, size, serversoftware, redirect
 HEAD_RPL = "(%s - %s) %s, %s%s bytes, %s%s"
-TITLE_REGEX = recompile('<title>(.*?)</title>', UNICODE|IGNORECASE|DOTALL)
+TITLE_REGEX = recompile('<title>(.*?)</title>', IGNORECASE|DOTALL)
 
 def seen_link(event, bot):
 	match = event.regex_match
 	pos = match.regs[0]
 	url = match.string[pos[0]:pos[1]]
-	#print repr(url), match, repr(match.group(0))
 	bot.dbQuery("""INSERT OR REPLACE INTO urlinfo (source, url) 
 		VALUES (?,?);""", (event.target, url))
 
@@ -73,13 +71,15 @@ def title(event, bot):
 	ctype = resp.headers.get("content-type", "?;").split(";")[0]
 	if ctype == "text/html":
 		m = None
-		try: chunk = resp.iter_content(chunk_size=1024*10).next() # only get one chunk to look in (10KB)
+		try: chunk = next(resp.iter_content(chunk_size=1024*10, decode_unicode=True)) # only get one chunk to look in (10KB)
 		except StopIteration: bot.say("Couldn't find a title in (%s)." % url)
 		else:
+			if isinstance(chunk, bytes):
+				chunk = chunk.decode(resp.encoding or "utf-8", "replace")
 			m = TITLE_REGEX.search(chunk)
 			if m: 
 				title = m.group(1)
-				bot.say("Title: %s" % HTMLParser().unescape(title))
+				bot.say("Title: %s" % unescape(title))
 			else: bot.say("Couldn't find a title in (%s)." % url)
 	else:
 		# TODO: Maybe display last portion of pathname using something like os.path.basename

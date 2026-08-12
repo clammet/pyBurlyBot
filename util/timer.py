@@ -2,9 +2,11 @@
 
 # suggested use would be for an alarm module or somesuch.
 
+from threading import current_thread
+
 from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
-from twisted.internet.threads import deferToThread, blockingCallFromThread
+from twisted.internet.threads import blockingCallFromThread
 
 
 class TimerExists(Exception):
@@ -19,7 +21,7 @@ class TimerNotFound(Exception):
 	pass
 
 
-class Timer(object):
+class Timer:
 	# reps <= 0 means forever
 	def __init__(self, name, interval, f, reps=1, startnow=False, *args, **kwargs):
 		self.name = name
@@ -39,7 +41,7 @@ class Timer(object):
 		self.lc.start(self.interval, now=True)
 
 
-class TimerInfo(object):
+class TimerInfo:
 	def __init__(self, timer):
 		self.name = timer.name
 		self.f = timer.f
@@ -70,8 +72,7 @@ class Timers:
 			raise TimerInvalidName("Invalid name (%s)." % name)
 		else:
 			# force interval and rep in to float and int respectivly in case module forgot (I forgot)
-			from threading import currentThread
-			if currentThread().getName() == 'MainThread':
+			if current_thread().name == 'MainThread':
 				return cls._addTimer(name, float(interval), f, int(reps), startnow, *args, **kwargs)
 			else:
 				return blockingCallFromThread(reactor, cls._addTimer, name, float(interval), f, int(reps), startnow, *args, **kwargs)
@@ -95,8 +96,7 @@ class Timers:
 		except AttributeError:
 			raise TimerInvalidName("Invalid name (%s)." % name)
 
-		from threading import currentThread
-		if currentThread().getName() == 'MainThread':
+		if current_thread().name == 'MainThread':
 			return cls._deltimer(name)
 		else:
 			return blockingCallFromThread(reactor, cls._deltimer, name)
@@ -121,7 +121,6 @@ class Timers:
 	#run the desired function in a thread but manage the timer in the reactor
 	@classmethod
 	def runTimer(cls, timerobj):
-		#print "Calling f: %s" % timerobj.f
 		reactor.callInThread(timerobj.f, *timerobj.args, **timerobj.kwargs)
 		if timerobj.reps > 0:
 			timerobj.reps -= 1
@@ -150,7 +149,7 @@ class Timers:
 
 	@classmethod
 	def _delPrefix(cls, prefix):
-		for timername in cls.timers.keys():
+		for timername in list(cls.timers.keys()):
 			if timername.startswith(prefix):
 				try: cls.timers[timername].lc.stop()
 				except AssertionError: pass

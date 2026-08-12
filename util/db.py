@@ -1,15 +1,11 @@
 from threading import Thread
-from Queue import Queue
+from queue import Queue
 from traceback import print_exc
 
 from os.path import exists, join, isfile
 from os import mkdir
+import sqlite3
 
-try:
-	from pysqlite2 import dbapi2 as sqlite3
-except:
-	import sqlite3
-	
 fetchone = sqlite3.Cursor.fetchone
 fetchall = sqlite3.Cursor.fetchall
 fetchmany = sqlite3.Cursor.fetchmany
@@ -18,7 +14,7 @@ fetchmany = sqlite3.Cursor.fetchmany
 ### DBManager managers the global bot database and server-specific databases.
 ### To use a specific database for a server you must configure that server to have a unique datafile.
 
-class DBManager(object):
+class DBManager:
 	def __init__(self, datadir, datafile):
 		self.serverDBMap = {}
 		self.fileDBMap = {}
@@ -78,7 +74,7 @@ class DBManager(object):
 		return self.serverDBMap.get(serverlabel, self.mainDB)
 		
 	def _shutdown(self):
-		for db in self.serverDBMap.itervalues():
+		for db in self.serverDBMap.values():
 			db.stop()
 		self.mainDB.stop()
 	
@@ -97,7 +93,7 @@ class DBManager(object):
 		return True
 		
 	def _dbcommit(self):
-		for db in self.serverDBMap.itervalues():
+		for db in self.serverDBMap.values():
 			db.commit()
 		self.mainDB.commit()
 		
@@ -107,7 +103,7 @@ class DBManager(object):
 	
 class ManagerThread(Thread):
 	def __init__(self):
-		Thread.__init__(self)
+		super().__init__()
 		self.callQueue = Queue()
 		self.name = "ManagerThread"
 	
@@ -139,13 +135,13 @@ class ManagerThread(Thread):
 # You can if you change transactional mode. What transactional mode do we want?
 class DBaccess(Thread):
 	def __init__(self, datadir, datafile):
-		Thread.__init__(self)
+		super().__init__()
 		self.name = "DBaccessThread(%s)" % datafile
 		self.datafile = datafile
 		if not exists(datadir):
 			mkdir(datadir)
 		elif isfile(datadir):
-			raise IOError("datadir should not be file")
+			raise OSError("datadir should not be file")
 		self.f = join(datadir, self.datafile)
 		self.qq = Queue() # QueryQueue, QQ
 		self.servers = 1
@@ -188,7 +184,7 @@ class DBaccess(Thread):
 		dbcon.close()
 		
 	def query(self, q, params=(), func=None):
-		if not self.isAlive():
+		if not self.is_alive():
 			raise RuntimeError("Attempted query on non running (%s)" % self.name)
 		resultq = Queue()
 		self.qq.put((q, params, func, resultq))
@@ -198,16 +194,16 @@ class DBaccess(Thread):
 		return result
 	
 	def batch(self, qs):
-		if not self.isAlive():
+		if not self.is_alive():
 			raise RuntimeError("Attempted query on non running (%s)" % self.name)
 		resultq = Queue()
 		self.qq.put((qs, resultq))
 		results = []
 		# get all results. probably not needed.
-		for i in xrange(len(qs)):
+		for i in range(len(qs)):
 			result = resultq.get()
 			if isinstance(result, Exception):
-				print "Exception with: %s" % str(qs[i])
+				print("Exception with: %s" % str(qs[i]))
 				raise result
 				# TODO: how to handle multiple exceptions?
 			results.append(result)
@@ -215,7 +211,7 @@ class DBaccess(Thread):
 		
 	def stop(self):
 		self.qq.put("STOP")
-		print "STOPPING %s" % self.name
+		print("STOPPING %s" % self.name)
 		self.join()
 		
 	def commit(self):

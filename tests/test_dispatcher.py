@@ -1,30 +1,57 @@
-from os import getcwdu, remove, fsync
-from os.path import join, abspath
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+from sys import modules
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest import TestCase
 
-#Required path fudging for module space
-import sys
-botdir = abspath(join(getcwdu(), "pyBurlyBot"))
-sys.path.insert(0,botdir)
+from util.dispatcher import Dispatcher
 
-from twisted.trial.unittest import TestCase
 
-from pyBurlyBot.pyBurlyBot import BurlyBot
-from pyBurlyBot.util.settings import KEYS_MAIN, Settings
-from pyBurlyBot.util.dispatcher import Dispatcher
-
-from pyBurlyBot.tests import TestException
-Settings.botdir = botdir
-
-# TODO: HORRIBLY OUTDATED
 class DispatcherTest(TestCase):
-	# silly but since this is my first test suite, no hate.
-	def test_initial(self):
-		#~ Settings.reload()
-		#~ self.assertEqual(Dispatcher.hostmap, {})
-		#~ self.assertEqual(Dispatcher.modules, [])
-		#~ self.assertEqual(Dispatcher.hostwaitmap, {})
-		pass
-	
-	def test_reloaded(self):
-		pass
-		
+	def setUp(self):
+		Dispatcher.reset()
+
+	def tearDown(self):
+		Dispatcher.reset()
+		modules.pop("pbm_demo", None)
+
+	def test_loads_module_with_modern_importlib_api(self):
+		with TemporaryDirectory() as temp_dir:
+			module_dir = Path(temp_dir, "modules")
+			module_dir.mkdir()
+			Path(module_dir, "pbm_demo.py").write_text(
+				"from util import Mapping\n"
+				"def demo(event, bot):\n\tpass\n"
+				"mappings = (Mapping(command='demo', function=demo),)\n",
+				encoding="utf-8",
+			)
+			settings = SimpleNamespace(
+				botdir=temp_dir,
+				debug=False,
+				allowmodules=None,
+				modules={"pbm_demo"},
+				denymodules=set(),
+			)
+
+			dispatcher = Dispatcher(settings)
+
+			self.assertIn("pbm_demo", dispatcher.loadedModules)
+			self.assertEqual(len(dispatcher._getCommandMappings("demo")), 1)
+
+	def test_all_bundled_modules_import_under_python_3(self):
+		module_dir = Path(__file__).resolve().parents[1] / "modules"
+		failures = []
+		for module_path in sorted(module_dir.glob("*.py")):
+			name = module_path.stem
+			spec = spec_from_file_location(name, module_path)
+			module = module_from_spec(spec)
+			modules[name] = module
+			try:
+				spec.loader.exec_module(module)
+			except Exception as exc:
+				failures.append("%s: %s" % (name, exc))
+			finally:
+				modules.pop(name, None)
+
+		self.assertEqual(failures, [])

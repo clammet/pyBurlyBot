@@ -1,5 +1,5 @@
 #alias module
-from util import Mapping, fetchone, fetchall, argumentSplit, functionHelp, pastehelper
+from util import Mapping, fetchone, argumentSplit, functionHelp, pastehelper
 from sys import modules
 
 REQUIRES = ("pbm_users",)
@@ -14,7 +14,7 @@ def lookup_alias(qfunc, alias):
 	try:
 		return result["user"]
 	except IndexError:
-		print "This shouldn't happen, invalid alias?"
+		print("This shouldn't happen, invalid alias?")
 
 
 def lookup_groupalias(qfunc, alias):

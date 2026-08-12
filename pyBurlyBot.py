@@ -1,12 +1,9 @@
 #pyBurlyBot
 
-#win32 codepage fix (http://stackoverflow.com/a/3259271) :
-from codecs import register, lookup
 from os import name
-if name == "nt": register(lambda name: lookup('utf-8') if name == 'cp65001' else None)
 
 from os.path import exists
-from os import getcwdu
+from os import getcwd
 from os.path import join
 from sys import exit, stdout, path
 from argparse import ArgumentParser
@@ -31,13 +28,13 @@ def setup_sighup_handler():
 if __name__ == '__main__':
 
 	#TODO: make botdir an argument maybe
-	Settings.botdir = getcwdu()
+	Settings.botdir = getcwd()
 	# Add module dir to env PYTHONPATH for win32 multiprocess compatibility
 	path.append(join(Settings.botdir, "modules"))
 
 	# temporary logging
 	templog = log.startLogging(stdout)
-	print "Starting pyBurlyBot, press CTRL+C to quit."
+	print("Starting pyBurlyBot, press CTRL+C to quit.")
 
 	parser = ArgumentParser(description="Internet bort pyBurlyBot",
 		epilog="pyBurlyBot requires a config file to be specified to run.")
@@ -54,24 +51,24 @@ if __name__ == '__main__':
 	# create-config
 	if args.createconfig:
 		if not args.config: args.config = "BurlyBot.json"
-		print "Creating configuration..."
+		print("Creating configuration...")
 		if exists(args.config) and not args.force:
-			print "Error: NEWCONFIGFILE (%s) exists. Use --force (-f) to force overwrite. Bailing." % args.config
+			print("Error: NEWCONFIGFILE (%s) exists. Use --force (-f) to force overwrite. Bailing." % args.config)
 			exit(1)
 		Settings.configfile = args.config
 		Settings.saveOptions()
-		print "Done."
+		print("Done.")
 		exit(0)
 
 	if args.config and exists(args.config):
 		Settings.configfile = args.config
 	else:
-		print "Error: Settings file (%s) not found." % args.config
+		print("Error: Settings file (%s) not found." % args.config)
 		exit(2)
 	try:
 		Settings.load()
 	except ConfigException as e:
-		print "Error:", e
+		print("Error:", e)
 		exit(2)
 
 	Settings.initialize(logger=templog)

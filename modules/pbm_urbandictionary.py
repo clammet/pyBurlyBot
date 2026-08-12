@@ -4,7 +4,8 @@ from util import Mapping
 
 from textwrap import wrap as textwrap, dedent
 from json import load as jsonload
-from urllib import urlopen, quote as urlquote
+from urllib.request import urlopen
+from urllib.parse import quote as urlquote
 from util.irctools import bold
 from re import compile as re_compile
 
@@ -42,7 +43,7 @@ def format_definition(json_obj):
 		s += 'E.g. ' + example
 	else:
 		# U+2014 EM DASH
-		s += definition + u' \u2014 e.g. ' + example
+		s += definition + ' \u2014 e.g. ' + example
 
 	return '%s (%s)' % (s, permalink)
 
@@ -53,7 +54,7 @@ def urbandictionary(event, bot):
 	if not event.argument:
 		json_obj = jsonload(urlopen(RANDOM_URL))
 	else:
-		json_obj = jsonload(urlopen(API_URL + urlquote(event.argument.encode('utf8'))))
+		json_obj = jsonload(urlopen(API_URL + urlquote(event.argument)))
 		if 'error' in json_obj:
 			return bot.say("An API error was returned when looking up the definition for '%s': %s" % (bold(event.argument), json_obj['error']))
 		if not json_obj['list']:

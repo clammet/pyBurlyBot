@@ -1,17 +1,11 @@
 # youtube search/info module
 
-from util import Mapping, commandSplit, functionHelp, fetchone
-from re import compile as recompile, IGNORECASE, UNICODE
-try:
-	# Python 2.6-2.7
-	from HTMLParser import HTMLParser
-except ImportError:
-	# Python 3
-	from html.parser import HTMLParser
+from util import Mapping, fetchone
+from re import compile as recompile, IGNORECASE
+from html import unescape
 
 from time import strftime, strptime
 
-HTMLPARSER = HTMLParser()
 REQUIRES = ("pbm_googleapi",)
 GAPI_MODULE = None
 
@@ -75,7 +69,6 @@ def show_youtube_info(event, bot):
 	flags = ""
 	if plus18 or dimension or definition:
 		flags = "(%s) " % ",".join((x for x in [definition, dimension, plus18] if x))
-	#print result
 	bot.say(VID_INFO % (SHORTURL % result['id'], duration, flags, views, likes, dislikes, favs, comments), 
 		strins=[result['snippet']['title'], result['snippet']['description'].replace("\n", " ")])
 
@@ -99,9 +92,9 @@ def youtube(event, bot):
 				links.append(SHORTURL % item['id']['videoId'])
 			elif id['kind'] == 'youtube#channel':
 				links.append(CHANNELURL % item['id']['channelId'])
-			title = HTMLPARSER.unescape(item['snippet']['title'])
+			title = unescape(item['snippet']['title'])
 			titles.append(title)
-		rpl = (rpl % tuple(xrange(lr))) % tuple(links)
+		rpl = (rpl % tuple(range(lr))) % tuple(links)
 		
 		bot.say(rpl, fcfs=False, strins=titles)
 	else:
@@ -120,5 +113,5 @@ def init(bot):
 
 #mappings to methods
 mappings = (Mapping(command=("youtube", "yt"), function=youtube), 
-	Mapping(types=["privmsged"], regex=recompile(r"\bhttps?\://(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11}).*\b", IGNORECASE|UNICODE), function=seen_video),
-	Mapping(types=["privmsged"], regex=recompile(r"\bhttps?\://(?:www\.)?youtube\.com\/.*v\=([a-zA-Z0-9_-]{11}).*\b", IGNORECASE|UNICODE), function=seen_video),)
+	Mapping(types=["privmsged"], regex=recompile(r"\bhttps?\://(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11}).*\b", IGNORECASE), function=seen_video),
+	Mapping(types=["privmsged"], regex=recompile(r"\bhttps?\://(?:www\.)?youtube\.com\/.*v\=([a-zA-Z0-9_-]{11}).*\b", IGNORECASE), function=seen_video),)

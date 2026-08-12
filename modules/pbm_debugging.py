@@ -3,7 +3,7 @@
 #some commands to facilitate debugging
 # you shouldn't enable this
 
-from util import Mapping, TimeoutException, commandSplit
+from util import Mapping
 from twisted.internet import reactor
 from twisted.internet.threads import blockingCallFromThread
 
@@ -25,7 +25,7 @@ def admin_runeval(event, bot):
 
 
 def admin_flood(event, bot):
-	for x in xrange(7):
+	for x in range(7):
 		bot.say("Hello %s" % x)
 
 #mappings to methods

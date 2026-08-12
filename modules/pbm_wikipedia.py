@@ -10,7 +10,7 @@ from util import functionHelp, Mapping
 from random import choice
 
 # Random disambiguous page: (SP: ?) Title - body <URL>
-RESULT_RPL = u"%s{0} - {1} <%s>"
+RESULT_RPL = "%s{0} - {1} <%s>"
 
 def wiki(event, bot):
 	""" wiki \x02searchterm\x02. Will search Wikipedia for \x02searchterm\x02. """

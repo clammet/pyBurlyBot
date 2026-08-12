@@ -1,20 +1,15 @@
 #settings and stuff
-from os.path import join, exists
+from os.path import join
 from os import execv
 from copy import deepcopy
-from Queue import Queue
 from json import dump, load, JSONEncoder
-from collections import MutableSet, OrderedDict
+from collections import OrderedDict
+from collections.abc import MutableSet
 from sys import modules, argv, executable
 from atexit import register
 
+from twisted.internet.ssl import CertificateOptions, PrivateCertificate, platformTrust
 from twisted.python import log
-
-try: 
-	SSL = True
-	from twisted.internet.ssl import CertificateOptions, PrivateCertificate, platformTrust
-except:
-	SSL = None
 from twisted.internet import reactor
 from twisted.internet.threads import blockingCallFromThread
 
@@ -33,13 +28,13 @@ KEYS_SERVER_SET = set(KEYS_SERVER)
 KEYS_MAIN = KEYS_COMMON + ("console", "debug", "datadir", "enablestate", "logfile", "modules", "servers")
 KEYS_MAIN_SET = set(KEYS_MAIN)
 #keys to create a copy of so no threading bads
-KEYS_COPY = set(("admins", "channels", "allowmodules", "denymodules", "modules"))
+KEYS_COPY = {"admins", "channels", "allowmodules", "denymodules", "modules"}
 #keys to deny getOption for:
 # TODO: probably needs more things here
-KEYS_DENY = set(("_admins", "servers", "dispatcher", "moduleopts"))
+KEYS_DENY = {"_admins", "servers", "dispatcher", "moduleopts"}
 # TODO: this may be incomplete
 # list of module setting types to copy to make sure no thread bads
-TYPE_COPY = set((list, tuple, dict))
+TYPE_COPY = {list, tuple, dict}
 
 PROPERTIES_MAP = { "admins" : "_admins" }
 
@@ -68,12 +63,12 @@ EXAMPLE_OPTS2 = {
 class ConfigException(Exception):
 	pass
 	
-class NoDefault(object):
+class NoDefault:
 	pass
 
 # This is managed from dispatcher, but accessed is managed through settings, and called from container.
 # (container wrapped the call in callfromthread if needed and settings managed allowed access)
-class _ADDONS(object):
+class _ADDONS:
 	def __init__(self):
 		self._dict = {}
 	
@@ -86,7 +81,7 @@ class _ADDONS(object):
 	def _getModuleAddon(self, addonname):
 		return self._dict[addonname]
 
-class BaseServer(object):
+class BaseServer:
 	moduleopts = None # {}
 	
 	def __init__(self, opts):
@@ -109,7 +104,7 @@ class BaseServer(object):
 				if opt is None:
 					raise ConfigException("Missing serverlabel.")
 				elif ":" in opt:
-					raise ConfigException('serverlabel ($s) cannot contain ":"' % self.serverlabel)
+					raise ConfigException('serverlabel (%s) cannot contain ":"' % opt)
 			elif key == "host" and opt is None:
 				raise ConfigException("%s must have a host" % self.serverlabel)
 			
@@ -140,9 +135,9 @@ class BaseServer(object):
 							self.channels.append((channel,))
 		
 			elif key == "allowmodules":
-				self.allowmodules = set(opt) if opt else set([])
+				self.allowmodules = set(opt) if opt else set()
 			elif key == "denymodules":
-				self.denymodules = set(opt) if opt else set([])
+				self.denymodules = set(opt) if opt else set()
 			elif opt:
 				setattr(self, key, opt)
 		
@@ -175,7 +170,7 @@ DummyServer = BaseServer # alias to make example server code clear
 class Server(BaseServer):
 	
 	def __init__(self, opts):
-		BaseServer.__init__(self, opts)
+		super().__init__(opts)
 		self.addons = None
 		#dispatcher placeholder (probably not needed)
 		self.dispatcher = None
@@ -348,7 +343,7 @@ class Server(BaseServer):
 			raise AttributeError("Provider %s is not available because module (%s) is not available." % (addonname, modname))
 	
 
-class SettingsBase(object):
+class SettingsBase:
 	nick = "BurlyBot"
 	altnicks = None # []
 	nicksuffix = "_"
@@ -395,7 +390,8 @@ class SettingsBase(object):
 	def _loadsettings(self):
 		# TODO: need some exception handling for loading JSON
 		try:
-			newsets = load(open(self.configfile, "r"))
+			with open(self.configfile, encoding="utf-8") as config_file:
+				newsets = load(config_file)
 		except ValueError as e:
 			raise ConfigException("Config file (%s) contains errors: %s"
 				"\nTry http://jsonlint.com/ and make sure no trailing commas." % (self.configfile, e))
@@ -407,12 +403,12 @@ class SettingsBase(object):
 			if opt in newsets:
 				if opt == "servers":
 					# calculate difference to know which servers to disconnect:
-					oldservers = set(self.servers.iterkeys())
+					oldservers = set(self.servers.keys())
 					# Create servers and put them in the server map
 					for serveropts in newsets["servers"]:
 						if "serverlabel" not in serveropts: 
 							# TODO: instead of raise, create warning and continue loading.
-							print "Missing serverlabel in config. Skipping server"
+							print("Missing serverlabel in config. Skipping server")
 							continue
 						label = serveropts["serverlabel"]
 						if label in self.servers:
@@ -420,13 +416,13 @@ class SettingsBase(object):
 							try:
 								self.servers[label].setup(serveropts)
 							except Exception as e:
-								print "Error in server setup for (%s), server settings may be in inconsistent state. %s" % (label, e)
+								print("Error in server setup for (%s), server settings may be in inconsistent state. %s" % (label, e))
 								continue
 						else:
 							try:
 								s = Server(serveropts)
 							except Exception as e:
-								print "Error in server setup for (%s), skipping. %s" % (label, e)
+								print("Error in server setup for (%s), skipping. %s" % (label, e))
 								continue
 							self.servers[label] = s
 							newservers.append(s)
@@ -443,13 +439,9 @@ class SettingsBase(object):
 	def _connect(self, servers):
 		for server in servers:
 			if server.ssl:
-				if not SSL:
-					print "Error: Cannot connect to '%s', pyOpenSSL not installed" % server.serverlabel
-					self.databasemanager.delServer(server.serverlabel)
-					continue
 				try: reactor.connectSSL(server.host, server.port, server._factory, createCertOptions(server))
 				except Exception as e:
-					print "SSL Error: Cannot connect to '%s' (%s)" % (server.serverlabel, e)
+					print("SSL Error: Cannot connect to '%s' (%s)" % (server.serverlabel, e))
 					self.databasemanager.delServer(server.serverlabel)
 			else:
 				reactor.connectTCP(server.host, server.port, server._factory)
@@ -461,7 +453,7 @@ class SettingsBase(object):
 	def _disconnect(self, servers):
 		#NOTE: this is serverlabel
 		for server in servers:
-			print "DISCONNECTING: %s" % server
+			print("DISCONNECTING: %s" % server)
 			server = self.servers[server]
 			if server.container._botinst:
 				server.container._botinst.quit()
@@ -472,7 +464,7 @@ class SettingsBase(object):
 			reactor.callLater(1.0, self.databasemanager.delServer, server.serverlabel)
 			#remove oldservers from servers dict
 			try: del self.servers[server.serverlabel]
-			except KeyError: print "Warning: tried to remove server that didn't exist"
+			except KeyError: print("Warning: tried to remove server that didn't exist")
 		
 	def load(self):
 		self.reloadStage1()
@@ -497,17 +489,17 @@ class SettingsBase(object):
 		Dispatcher.reset()
 		#create databases so init() can do database things.
 		self.createDatabases(self.newservers)
-		for server in self.servers.itervalues():
+		for server in self.servers.values():
 			server.initializeReload()
 		Dispatcher.showLoadErrors()
 		#compare currently loaded modules to oldmodules
 		oldmodules = oldmodules.difference(set(Dispatcher.MODULEDICT.keys()))
 		#remove oldmodules from sys.modules
 		for module in oldmodules:
-			print "Removing module: %s" % module
+			print("Removing module: %s" % module)
 			try: del modules[module]
 			except KeyError:
-				print "WARNING: module was never in modules %s" % module
+				print("WARNING: module was never in modules %s" % module)
 		# connect after load dispatchers
 		self._connect(self.newservers)
 		self.oldservers = self.newservers = []
@@ -537,15 +529,16 @@ class SettingsBase(object):
 			if val:
 				d[key] = val
 		if self.servers:
-			d["servers"] = [serv._getDict() for serv in self.servers.itervalues()]
+			d["servers"] = [serv._getDict() for serv in self.servers.values()]
 		else:
 			EXAMPLE_SERVER = DummyServer(EXAMPLE_OPTS)
 			EXAMPLE_SERVER2 = DummyServer(EXAMPLE_OPTS2)
 			d["servers"] = [EXAMPLE_SERVER._getDict(), EXAMPLE_SERVER2._getDict()]
-		dump(d, open(self.configfile, "wb"), indent=4, separators=(',', ': '), cls=ConfigEncoder)
+		with open(self.configfile, "w", encoding="utf-8") as config_file:
+			dump(d, config_file, indent=4, separators=(',', ': '), cls=ConfigEncoder)
 	
 	def shutdown(self, relaunch=False):
-		self._disconnect(self.servers.keys())
+		self._disconnect(list(self.servers.keys()))
 		#stop timers or just not care...
 		Timers._stopall()
 		reactor.callLater(2.0, self.databasemanager.shutdown) # to give time for individual shutdown
@@ -577,7 +570,8 @@ def createCertOptions(server):
 	pk = None
 	cert = None
 	if server.cert:
-		pc = PrivateCertificate.loadPEM(open(server.cert,"rb").read())
+		with open(server.cert, "rb") as cert_file:
+			pc = PrivateCertificate.loadPEM(cert_file.read())
 		pk = pc.privateKey.original
 		cert = pc.original
 	tr = platformTrust() if server.verify else None

@@ -1,11 +1,10 @@
 #timehelpers.py
-from datetime import timedelta, datetime
-from time import time, mktime, gmtime
+from datetime import UTC, timedelta, datetime
+from time import time
 from calendar import timegm
 from codecs import lookup
 from operator import itemgetter
 from shlex import shlex
-from StringIO import StringIO
 from inspect import getdoc
 import re
 
@@ -28,136 +27,6 @@ WDAY_SHORTMAP = {
 5: 'Sat',
 6: 'Sun'
 }
-
-# extend shlex to implement slightly modified parser to treat all "nonhandled" characters
-# as "wordchars". Should mean it parses unicode and symbols as words.
-# read_token is taken almost verbatim from origin and only modified slightly.
-class newshlex(shlex):
-	def __init__(self, *args, **kwargs):
-		shlex.__init__(self, *args, **kwargs)
-		#self.debug = 5
-		self.commenters = ""
-		
-	def read_token(self):
-		quoted = False
-		escapedstate = ' '
-		while True:
-			nextchar = self.instream.read(1)
-			if nextchar == '\n':
-				self.lineno = self.lineno + 1
-			if self.debug >= 3:
-				print "shlex: in state", repr(self.state), \
-					"I see character:", repr(nextchar)
-			if self.state is None:
-				self.token = ''        # past end of file
-				break
-			elif self.state == ' ':
-				if not nextchar:
-					self.state = None  # end of file
-					break
-				elif nextchar in self.whitespace:
-					if self.debug >= 2:
-						print "shlex: I see whitespace in whitespace state"
-					if self.token or (self.posix and quoted):
-						break   # emit current token
-					else:
-						continue
-				elif nextchar in self.commenters:
-					self.instream.readline()
-					self.lineno = self.lineno + 1
-				elif self.posix and nextchar in self.escape:
-					escapedstate = 'a'
-					self.state = nextchar
-				elif nextchar in self.quotes:
-					if not self.posix:
-						self.token = nextchar
-					self.state = nextchar
-				elif self.whitespace_split:
-					self.token = nextchar
-					self.state = 'a'
-				else:
-					self.token = nextchar
-					if (self.posix and quoted):
-						break   # emit current token
-					else:
-						self.state = 'a' # treat all characters like wordchars
-						continue
-			elif self.state in self.quotes:
-				quoted = True
-				if not nextchar:      # end of file
-					if self.debug >= 2:
-						print "shlex: I see EOF in quotes state"
-					# XXX what error should be raised here?
-					raise ValueError, "No closing quotation"
-				if nextchar == self.state:
-					if not self.posix:
-						self.token = self.token + nextchar
-						self.state = ' '
-						break
-					else:
-						self.state = 'a'
-				elif self.posix and nextchar in self.escape and \
-						self.state in self.escapedquotes:
-					escapedstate = self.state
-					self.state = nextchar
-				else:
-					self.token = self.token + nextchar
-			elif self.state in self.escape:
-				if not nextchar:      # end of file
-					if self.debug >= 2:
-						print "shlex: I see EOF in escape state"
-					# XXX what error should be raised here?
-					raise ValueError, "No escaped character"
-				# In posix shells, only the quote itself or the escape
-				# character may be escaped within quotes.
-				if escapedstate in self.quotes and \
-						nextchar != self.state and nextchar != escapedstate:
-					self.token = self.token + self.state
-				self.token = self.token + nextchar
-				self.state = escapedstate
-			elif self.state == 'a':
-				if not nextchar:
-					self.state = None   # end of file
-					break
-				elif nextchar in self.whitespace:
-					if self.debug >= 2:
-						print "shlex: I see whitespace in word state"
-					self.state = ' '
-					if self.token or (self.posix and quoted):
-						break   # emit current token
-					else:
-						continue
-				elif nextchar in self.commenters:
-					self.instream.readline()
-					self.lineno = self.lineno + 1
-					if self.posix:
-						self.state = ' '
-						if self.token or (self.posix and quoted):
-							break   # emit current token
-						else:
-							continue
-				elif self.posix and nextchar in self.quotes:
-					self.state = nextchar
-				elif self.posix and nextchar in self.escape:
-					escapedstate = 'a'
-					self.state = nextchar
-				elif nextchar in self.wordchars or nextchar in self.quotes \
-						or self.whitespace_split:
-					self.token = self.token + nextchar
-				else: # treat all characters like wordchars
-					self.token = self.token + nextchar
-		result = self.token
-		self.token = ''
-		if self.posix and not quoted and result == '':
-			result = None
-		if self.debug > 1:
-			if result:
-				print "shlex: raw token=" + repr(result)
-			else:
-				print "shlex: raw token=EOF"
-		if quoted:
-			return result[1:-1]
-		return result
 
 # adapted http://stackoverflow.com/a/2119512
 def days_hours_minutes(td):
@@ -226,7 +95,8 @@ def processHostmask(h):
 ENCODINGS = ("utf-8", "sjis", "latin_1", "gb2312", "cp1251", "cp1252",
 	"gbk", "cp1256", "euc_jp")
 def coerceToUnicode(s, enc=None):
-	if isinstance(s, unicode): return s
+	if isinstance(s, str): return s
+	if not isinstance(s, bytes): return str(s)
 	if enc:
 		try: return s.decode(enc)
 		except UnicodeDecodeError: pass
@@ -236,7 +106,7 @@ def coerceToUnicode(s, enc=None):
 		except UnicodeDecodeError:
 			continue
 	s = s.decode("utf-8", "replace")
-	print "Warning, unknown coded character encounted in %s" % s
+	print("Warning, unknown coded character encounted in %s" % s)
 	return s
 		
 def processListReply(params):
@@ -247,7 +117,7 @@ def processListReply(params):
 	return channel, mask, nick, ident, host, t, params[3]
 
 # TODO: This seems pretty clunky. Maybe revisit/refactor it in future...	
-class PrefixMap(object):
+class PrefixMap:
 	def __init__(self, prefixiter):
 		self.loadfromprefix(prefixiter)
 		
@@ -314,11 +184,15 @@ def argumentSplit(s, nargs, pad=True):
 		the remaining args up to nargs with None.
 	"""
 	if s:
-		s = newshlex(StringIO(s)) # use non-C StringIO for (somewhat) unicode support?
+		s = shlex(s, posix=False)
+		s.commenters = ""
+		s.whitespace_split = True
 		i = 0
 		args = []
 		while (i < nargs -1) or nargs == -1: # allows to split entire string
 			tok = s.get_token()
+			if tok and len(tok) >= 2 and tok[0] in s.quotes and tok[-1] == tok[0]:
+				tok = tok[1:-1]
 			if not tok: break
 			args.append(tok)
 			i += 1
@@ -362,7 +236,7 @@ def splitEncodedUnicode(s, length, encoding="utf-8", n=1):
 					break
 				c = es[ie]
 				#check for unicode character start byte, and backtrack if not found
-				while (0b10000000 & ord(c) != 0) and (0b11000000 & ord(c) != 0b11000000) and ie > 0:
+				while (0b10000000 & c != 0) and (0b11000000 & c != 0b11000000) and ie > ib:
 					ie -= 1
 					c = es[ie]
 				splits.append(es[ib:ie])
@@ -371,13 +245,13 @@ def splitEncodedUnicode(s, length, encoding="utf-8", n=1):
 					ie += 1
 					try:
 						c = es[ie]
-						while (0b10000000 & ord(c) != 0) and (0b11000000 & ord(c) != 0b11000000):
+						while (0b10000000 & c != 0) and (0b11000000 & c != 0b11000000):
 							ie += 1
 							c = es[ie]
 					except IndexError: 
 						break # break if end of encoded string is reached.
 				ib = ie
-			splits = [(s.decode("utf-8"), len(s)) for s in splits] #TODO: this double conversion seems kind of wasteful
+			splits = [(segment.decode("utf-8"), len(segment)) for segment in splits]
 			# it might be faster to calc all the endchar points first and then translate back.
 		else:
 			# not as bad as I thought it would be, but pretty bad
@@ -437,7 +311,7 @@ def parseDateTime(s, t=None):
 	# even though "at 2/2 sounds odd, allow it so that all the 'absolute relative' timecodes are in one place
 	if s.startswith("on") or s.startswith("at"):
 		# absolute relative (lol) date. e.g. 5/3, 2014/06/31, etc also Monday, Tuesday, etc
-		dd = datetime.utcfromtimestamp(t)
+		dd = datetime.fromtimestamp(t, UTC).replace(tzinfo=None)
 		s = s[2:].strip()
 		pd = None
 		for index, dformat in enumerate(("%Y/%m/%d", "%m/%d", "%dth", "%dst", "%snd", "%drd", "%H:%M", "%I%p")):
@@ -507,7 +381,7 @@ def parseDateTime(s, t=None):
 
 	if s == "tomorrow":
 		#special case similar to above
-		dd = datetime.utcfromtimestamp(t)
+		dd = datetime.fromtimestamp(t, UTC).replace(tzinfo=None)
 		if dd.hour < 5:
 			return timegm(dd.replace(hour=7, minute=0, second=0).timetuple())
 		else:

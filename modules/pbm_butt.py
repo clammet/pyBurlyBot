@@ -6,7 +6,6 @@ This is ported almost directly from old BBM
 """
 
 from util import Mapping, pastehelper, argumentSplit, fetchone
-from time import sleep
 import re
 import random
 try:
@@ -23,7 +22,7 @@ OPTIONS = {
 STOPWORDS = (r'[^A-Za-z]+', 'butt', 'a', 'an', 'and', 'or', 'but', 'it', 'is',
 'its', "it's", 'the', 'of', 'you', 'I', 'your')
 RE_STOPWORDS = re.compile(r'^\W*(' + r'|'.join(STOPWORDS) + r')\W*$',
-							flags=re.IGNORECASE | re.UNICODE)
+							flags=re.IGNORECASE)
 
 def butt(event, bot):
 	""" butt [input].  Use the power of computing to make a sentence dumber.
@@ -83,7 +82,7 @@ def rand_butt(event, bot):
 def buttify(msg):
 	"""Return buttified msg."""
 	buttable_words = [word for word in msg.split() if not RE_STOPWORDS.match(word)]
-	butt_passes = len(buttable_words) / 8 + 1
+	butt_passes = len(buttable_words) // 8 + 1
 	buttable_words.sort(key=len, reverse=True)
 
 	# Weighted shuffle (by length of word) for pick order, then remove duplicates

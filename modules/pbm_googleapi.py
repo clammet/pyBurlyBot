@@ -1,19 +1,13 @@
-
-# Google services
-# require APIkey module option
-
-# TODO: maybe implement some of these neat filters:
-# https://developers.google.com/custom-search/json-api/v1/reference/cse/list#request
-
-from urllib2 import urlopen, URLError
-from urllib import urlencode, quote
+from urllib.request import urlopen
+from urllib.error import URLError
+from urllib.parse import urlencode, quote
 from json import load
 
 from util.settings import ConfigException	
 
 OPTIONS = {
-	"API_KEY" : (unicode, "API key for use with Google services.", u""),
-	"CSE_ID" : (unicode, "ID of Custom Search Engine to use with Google search.", u""),
+	"API_KEY" : (str, "API key for use with Google services.", ""),
+	"CSE_ID" : (str, "ID of Custom Search Engine to use with Google search.", ""),
 }
 
 SEARCH_URL = "https://www.googleapis.com/customsearch/v1?%s"
@@ -28,7 +22,7 @@ def google(query, num_results=1):
 	""" google helper. Will return Google search results using the provided query up to num_results results."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
-	d = { "q" : query.encode("utf-8"), "key" : API_KEY, "cx" : CSE_ID, "num" : num_results,
+	d = { "q" : query, "key" : API_KEY, "cx" : CSE_ID, "num" : num_results,
 		"fields" : "spelling/correctedQuery,items(title,link,snippet)" }
 	
 	f = urlopen(SEARCH_URL % (urlencode(d)))
@@ -49,7 +43,7 @@ def google_image(query, num_results):
 	""" google image search helper. Will return Google images using the provided query up to num_results results."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
-	d = { "q" : query.encode("utf-8"), "key" : API_KEY, "cx" : CSE_ID, "num" : num_results, "searchType" : "image",
+	d = { "q" : query, "key" : API_KEY, "cx" : CSE_ID, "num" : num_results, "searchType" : "image",
 		"fields" : "spelling/correctedQuery,items(title,link)"}
 		#TODO: consider displaying img stats like file size and resolution?
 	f = urlopen(SEARCH_URL % (urlencode(d)))
@@ -85,7 +79,7 @@ def google_geocode(query):
 	""" helper to ask google for location data. Returns name, lat, lon"""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
-	d = {"address" : query.encode("utf-8"), "key" : API_KEY }
+	d = {"address" : query, "key" : API_KEY }
 	f = urlopen(LOC_URL % (urlencode(d)))
 	locdata = load(f)
 	if f.getcode() == 200:
@@ -107,7 +101,7 @@ def google_youtube_search(query, relatedTo=None):
 	# TODO: make module option for safesearch
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
-	d = {"q" : query.encode("utf-8"), "part" : "snippet", "key" : API_KEY, "safeSearch" : "none",
+	d = {"q" : query, "part" : "snippet", "key" : API_KEY, "safeSearch" : "none",
 		"type" : "video,channel"}
 	if relatedTo:
 		d["relatedToVideoId"] = relatedTo
@@ -129,7 +123,7 @@ def google_youtube_check(id):
 	""" helper to ask google if youtube ID is valid."""
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
-	d = {"id" : quote(id.encode("utf-8")), "part" : "id,status", "key" : API_KEY}
+	d = {"id" : quote(id), "part" : "id,status", "key" : API_KEY}
 	
 	f = urlopen(YOUTUBE_INFO_URL % (urlencode(d)))
 	ytdata = load(f)
@@ -142,7 +136,7 @@ def google_youtube_details(vidid):
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for googleapi. Reload after setting.")
 	# TODO: make module option for safesearch
-	d = {"id" : quote(vidid.encode("utf-8")), "part" : "contentDetails,id,snippet,statistics,status", "key" : API_KEY}
+	d = {"id" : quote(vidid), "part" : "contentDetails,id,snippet,statistics,status", "key" : API_KEY}
 	
 	f = urlopen(YOUTUBE_INFO_URL % (urlencode(d)))
 	ytdata = load(f)
@@ -161,4 +155,3 @@ def init(bot):
 	API_KEY = bot.getOption("API_KEY", module="pbm_googleapi")
 	CSE_ID = bot.getOption("CSE_ID", module="pbm_googleapi")
 	return True
-

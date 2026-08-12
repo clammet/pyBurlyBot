@@ -1,11 +1,9 @@
 #tell module
-from time import gmtime, localtime, mktime
-from datetime import datetime
+from time import gmtime, localtime
 from calendar import timegm # silly python... I just want UTC seconds
 from collections import deque
 
-from util import Mapping, argumentSplit, functionHelp, distance_of_time_in_words, fetchone,\
-	pastehelper, english_list, parseDateTime
+from util import Mapping, argumentSplit, functionHelp, distance_of_time_in_words, pastehelper, english_list, parseDateTime
 from util.settings import ConfigException
 # added dependency on user module only for speed. Means can keep reference to user module without having
 # to dive in to the reactor twice? per message
@@ -14,19 +12,19 @@ REQUIRES = ("pbm_users",)
 USERS_MODULE = None
 
 #nick: <source> msg - time
-TELLFORMAT = u"{0}: <{1}> {2} - {3}"
+TELLFORMAT = "{0}: <{1}> {2} - {3}"
 #nick: I'll pass that on when target is around.
-RPLFORMAT = u"%s: I'll %s when %s %s around.%s%s%s"
-PASSON = u"pass that on"
-ASKTHAT = u"ask that"
-UNKNOWN = u" Don't know (%s)."
-URSELF = u" Use notepad for yourself."
-MULTIUSER = u" %s someone once is enough."
+RPLFORMAT = "%s: I'll %s when %s %s around.%s%s%s"
+PASSON = "pass that on"
+ASKTHAT = "ask that"
+UNKNOWN = " Don't know (%s)."
+URSELF = " Use notepad for yourself."
+MULTIUSER = " %s someone once is enough."
 #nick: I will remind target about that in timespec.
-RPLREMINDFORMAT = u"%s: I will remind %s about that %s.%s%s"
+RPLREMINDFORMAT = "%s: I will remind %s about that %s.%s%s"
 #TARGET, reminder from SOURCE: MSG - set TELLTIME, arrived TOLDTIME.
-REMINDFORMAT = u"{0}, reminder from {1}: {2} - set {3}, arrived {4}."
-SELFREMINDFORMAT = u"{0}, reminder: {1} - set {2}, arrived {3}."
+REMINDFORMAT = "{0}, reminder from {1}: {2} - set {3}, arrived {4}."
+SELFREMINDFORMAT = "{0}, reminder: {1} - set {2}, arrived {3}."
 
 MAX_REMIND_TIME = 157700000 # 5 year
 
@@ -164,11 +162,6 @@ def tell(event, bot):
 		bot.dbQuery('''INSERT INTO tell(user, telltime, source, msg) VALUES (?,?,?,?);''',
 			(user, int(timegm(gmtime())), event.nick, imsg))
 		targets.append(target)
-	# check if we need to warn about too many tell pastebin
-	# https://github.com/Clam-/pyBurlyBot/issues/29 
-	#~ n = bot.dbQuery('''SELECT COUNT(id) AS C FROM tell WHERE user = ? AND delivered = ? AND telltime < ?;''', (user, 0, time()), fetchone)['C']
-	#~ if n > 3:
-		#~ print "GUNNA WARNING"
 	if len(users) > 1:
 		bot.say(RPLFORMAT % (event.nick, PASSON if cmd == "tell" else ASKTHAT,
 			english_list(targets), "are", UNKNOWN % english_list(unknown) if unknown else "",

@@ -91,4 +91,4 @@ class BotWrapper:
 				self.say("%s: %s. Don't know where, check log." % (type(ex).__name__, ex))
 		else:
 			self.say("Error: %s" % str(e))
-			print "error:", e
+			print("error:", e)

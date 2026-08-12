@@ -4,14 +4,14 @@ from sys import stderr
 from traceback import format_exc, print_exc
 from os.path import join, exists
 from operator import attrgetter
-from uuid import uuid1
-from imp import find_module, load_module
+from importlib.util import module_from_spec, spec_from_file_location
+from sys import modules as system_modules
 from functools import partial
 
-from wrapper import BotWrapper
-from container import SetupContainer
-from helpers import isIterable, commandSplit, coerceToUnicode
-from event import Event
+from .wrapper import BotWrapper
+from .container import SetupContainer
+from .helpers import isIterable, commandSplit, coerceToUnicode
+from .event import Event
 
 class Dispatcher:
 	MODULEDICT = {}
@@ -68,7 +68,7 @@ class Dispatcher:
 
 	def loadModule(self, modulename, resolvedModules=None):
 		if modulename in self.loadedModules: return True
-		print "Loading %s..." % modulename
+		print("Loading %s..." % modulename)
 		if not modulename.startswith("pbm_"):
 			if exists(join(self.moddir, "pbm_%s.py" % modulename)):
 				self.NOTICE[modulename] = "pbm_%s found, attempting to load instead of \"%s\" " \
@@ -81,21 +81,24 @@ class Dispatcher:
 		if module is None:
 			if modulename in self.NOTLOADED: return None
 			try:
-				(f, pathname, description) = find_module(modulename, [self.moddir])
+				pathname = join(self.moddir, "%s.py" % modulename)
+				spec = spec_from_file_location(modulename, pathname)
+				if spec is None or spec.loader is None:
+					raise ImportError("Cannot create an import spec for %s" % pathname)
+				module = module_from_spec(spec)
+				# Keep the short module name so multiprocessing can import it on Windows.
+				system_modules[modulename] = module
 				try:
-					# leave module name alone so multiprocessing works on win32
-					module = load_module(modulename, f, pathname, description)
-				except Exception as e:
-					self.NOTLOADED[modulename] = format_exc()
-					return None
-				finally:
-					f.close()
-			except Exception as e:
+					spec.loader.exec_module(module)
+				except Exception:
+					system_modules.pop(modulename, None)
+					raise
+			except Exception:
 				self.NOTLOADED[modulename] = format_exc()
 				return None
 		# process module requirements before calling init:
 		if hasattr(module, "REQUIRES"):
-			if not resolvedModules: resolvedModules = set([modulename])
+			if not resolvedModules: resolvedModules = {modulename}
 			else: resolvedModules.add(modulename)
 			reqsloaded = self.checkAndLoadReqs(module, resolvedModules)
 			if reqsloaded is None:
@@ -116,7 +119,7 @@ class Dispatcher:
 
 		# process module default settings
 		if hasattr(module, "OPTIONS"):
-			for opt, params in module.OPTIONS.iteritems():
+			for opt, params in module.OPTIONS.items():
 				if len(params) != 3:
 					self.NOTLOADED[modulename] = "Invalid number of parameters for OPTIONS. Require: type, desc, default."
 					return None
@@ -129,7 +132,7 @@ class Dispatcher:
 				if not module.init(SetupContainer(self.settings.container)):
 					self.NOTLOADED[modulename] = "Error in init() for server (%s)" % self.settings.serverlabel
 					return None
-			except Exception as e:
+			except Exception:
 				self.NOTLOADED[modulename] = "Error in init() for server (%s):\n%s" % (self.settings.serverlabel, format_exc())
 				return None
 		
@@ -145,7 +148,7 @@ class Dispatcher:
 		self.MODULEDICT[modulename] = module
 		if hasattr(module, "mappings"):
 			self.processMappings(module)
-		print "Loaded %s." % modulename
+		print("Loaded %s." % modulename)
 		self.loadedModules.add(modulename)
 		return True
 		
@@ -169,8 +172,7 @@ class Dispatcher:
 
 				if mapping.command:
 					mapcom = mapping.command
-					#check if tuple or list or basestring (str or unicodes)
-					# I guess it's not a big deal to check both
+					# Mapping normalizes a single command string into an iterable.
 					if mapping.function and isinstance(mapping.function, partial):
 						# little cheat for adding module to functools.partial things like in simplecommands
 						mapping.function.__module__ = module.__name__
@@ -187,7 +189,7 @@ class Dispatcher:
 		if cmd:
 			return self.eventmap.get("privmsged", {}).get("command", {}).get(cmd, [])
 		else:
-			return self.eventmap.get("privmsged", {}).get("command", {}).values()
+			return list(self.eventmap.get("privmsged", {}).get("command", {}).values())
 	
 	@classmethod
 	def reset(cls):
@@ -198,12 +200,12 @@ class Dispatcher:
 	@classmethod
 	def unloadModules(cls):
 		# call modules unload function to clean up.
-		for modname, module in cls.MODULEDICT.iteritems():
+		for modname, module in cls.MODULEDICT.items():
 			if hasattr(module, "unload"): 
-				print "UNLOADING (%s)" % modname
+				print("UNLOADING (%s)" % modname)
 				try: module.unload()
-				except Exception as e:
-					print "ERROR in unloading %s" % modname
+				except Exception:
+					print("ERROR in unloading %s" % modname)
 					print_exc()
 	
 	def dispatch(self, botinst, event_type, **eventkwargs):
@@ -233,7 +235,7 @@ class Dispatcher:
 			if event is None: 
 				eventkwargs["encoding"] = settings.encoding
 				event, cont_or_wrap = self.createEventAndWrap(cont_or_wrap, l_event_type, eventkwargs)
-			if self.debug >= 2: print "DISPATCHING: %s" % event
+			if self.debug >= 2: print("DISPATCHING: %s" % event)
 			#lol dispatcher is 100 more simple now, but at the cost of more dict...
 			for mapping in eventmap[l_event_type]["instant"]:
 				self._dispatchreally(mapping.function, event, cont_or_wrap, self.debug)
@@ -289,7 +291,7 @@ class Dispatcher:
 	
 	@staticmethod					
 	def _dispatchreally(func, event, cont_or_wrap, debug):
-		if debug >= 2: print "DISPATCHING TO: %r" % func
+		if debug >= 2: print("DISPATCHING TO: %r" % func)
 		d = deferToThread(func, event, cont_or_wrap)
 		#add errback
 		d.addErrback(cont_or_wrap._moduleerr)
@@ -313,12 +315,12 @@ class Dispatcher:
 	@classmethod
 	def showLoadErrors(cls):
 		if cls.NOTICE:
-			print >> stderr, "\nNOTICE: MODULE LOAD(S) MODIFIED:"
-			for module, reason in cls.NOTICE.iteritems():
+			print("\nNOTICE: MODULE LOAD(S) MODIFIED:", file=stderr)
+			for module, reason in cls.NOTICE.items():
 				stderr.write('  %s: %s\n' % (module, reason))
-			print >> stderr, "\n"
+			print("\n", file=stderr)
 		if cls.NOTLOADED:
-			print >> stderr, "\nWARNING: MODULE(S) NOT LOADED:"
-			for module, reason in cls.NOTLOADED.iteritems():
+			print("\nWARNING: MODULE(S) NOT LOADED:", file=stderr)
+			for module, reason in cls.NOTLOADED.items():
 				stderr.write('  %s: %s\n' % (module, reason))
-			print >> stderr, "\n"
+			print("\n", file=stderr)

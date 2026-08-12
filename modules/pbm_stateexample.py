@@ -8,38 +8,38 @@ def statecommand(event, bot):
 	
 	if command == "channel":
 		if not args:
-			for chan in bot.state.channels.keys():
+			for chan in list(bot.state.channels.keys()):
 				bot.say("Users on channel (%s): %s" % (chan,
-					", ".join(bot.state.channels.get(chan).users.keys())))
+					", ".join(list(bot.state.channels.get(chan).users.keys()))))
 		else:
 			chan = bot.state.channels.get(args, None)
 			if chan:
 				bot.say("Users on channel (%s): %s" % (args, 
-					", ".join(chan.users.keys())))
+					", ".join(list(chan.users.keys()))))
 			else:
 				bot.say("lol dunno channel %s" % args)
 	
 	elif command == "bans":
 		if not args:
-			for chan in bot.state.channels.keys():
+			for chan in list(bot.state.channels.keys()):
 				bot.say("Bans on channel (%s): %s" % (chan,
-					", ".join(bot.state.channels.get(chan).keys())))
+					", ".join(list(bot.state.channels.get(chan).keys()))))
 		else:
 			chan = bot.state.channels.get(args, None)
 			if chan:
 				bot.say("Bans on channel (%s): %s" % (args, 
-					", ".join(chan.banlist.keys())))
+					", ".join(list(chan.banlist.keys()))))
 			else:
 				bot.say("lol dunno channel %s" % args)
 	
 	elif command == "network":
-		bot.say("Known users on network: %s" % ", ".join(bot.state.users.keys()))
+		bot.say("Known users on network: %s" % ", ".join(list(bot.state.users.keys())))
 		
 	elif command == "ops":
-		for chan in bot.state.channels.keys():
+		for chan in list(bot.state.channels.keys()):
 			bot.say("Ops on %s: %s" % (chan, list(bot.state.channels.get(chan, None).ops))) # most likely not threadsafe, don't iterate over sets, probably.
 	elif command == "channels":
-		bot.say("On channels: %s" % ", ".join(bot.state.channels.keys()))
+		bot.say("On channels: %s" % ", ".join(list(bot.state.channels.keys())))
 	else:
 		bot.say("state: channel, network, channels, ops")
 

@@ -8,13 +8,12 @@
 # need cron file that cleans up stale things that's run from cron
 
 from tempfile import NamedTemporaryFile
-from os.path import exists, isdir, join
+from os.path import exists, join
 from os import chmod, makedirs, stat, rename
 from errno import EEXIST
-from re import compile as recompile, UNICODE, IGNORECASE
 from stat import S_IRUSR, S_IWUSR, S_IRGRP, S_IWGRP, S_IROTH
-from cgi import escape
-from urllib import unquote
+from html import escape
+from urllib.parse import unquote
 
 from hashids import Hashids
 hashids = Hashids()
@@ -24,8 +23,8 @@ from util import URLREGEX
 PROVIDES = ("paste",)
 
 OPTIONS = {
-	"wwwroot" : (unicode, "Web directory location for storing pastes.", u"data/pastes/"),
-	"url_prefix" : (unicode, "Prefix of the webfacing URL. e.g. 'http://domain.com/paste/'", u"http://localhost/pastepls"),
+	"wwwroot" : (str, "Web directory location for storing pastes.", "data/pastes/"),
+	"url_prefix" : (str, "Prefix of the webfacing URL. e.g. 'http://domain.com/paste/'", "http://localhost/pastepls"),
 }
 
 # tempfile.NamedTemporaryFile  dir= module/server path for www. prefix=tmp
@@ -46,20 +45,6 @@ TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
-#Borrowed from helpers.coerceToUnicode
-# TODO: I don't think this is actually needed.
-ENCODINGS = ("utf-8", "sjis", "latin_1", "gb2312", "cp1251", "cp1252",
-	"gbk", "cp1256", "euc_jp")
-def decodeURL(u):
-	u = unquote(u)
-	if isinstance(u, unicode): return u
-	for enc in ENCODINGS:
-		try:
-			return u.decode(enc)
-		except UnicodeDecodeError:
-			continue
-	u = u.decode("utf-8", "replace")
-
 # TODO: Do we need to define some sort of 'typical paste API'?
 def paste(s, bot=None, title="BurlyBot paste", **kwargs):
 	assert(bot is not None)
@@ -78,18 +63,18 @@ def paste(s, bot=None, title="BurlyBot paste", **kwargs):
 	if "http" in s:
 		# linkify stuff.
 		# more tedious than I thought it would be... process each line, and cut out the surrounding nonlink text to escape
-		title = escape(title)
+		title = escape(title, quote=True)
 		lastend = 0
 		parts = []
 		for match in URLREGEX.finditer(s):
 			mstart, mend = match.span()
-			parts.append(escape(s[lastend:mstart]))
+			parts.append(escape(s[lastend:mstart], quote=True))
 			m = match.group()
 			#ms = m.split("://", 1)
 			# Assume generated URLs are already encoded properly, only need to htmlencode them
-			parts.append('<a href="%s">%s</a>' % (escape(m), escape(decodeURL(m))))
+			parts.append('<a href="%s">%s</a>' % (escape(m, quote=True), escape(unquote(m), quote=True)))
 			lastend = mend
-		parts.append(escape(s[lastend:]))
+		parts.append(escape(s[lastend:], quote=True))
 		s = TEMPLATE % (title, title, "".join(("<p>%s</p>" % x for x in "".join(parts).split("\n"))))
 		nf = nf % "html"
 	else:

@@ -1,5 +1,5 @@
 #users
-from util import Mapping, distance_of_time_in_words, fetchone, pastehelper
+from util import Mapping, distance_of_time_in_words, fetchone
 # Modules should not import Settings unless you have a very good reason to do so.
 from util.settings import Settings
 

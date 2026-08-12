@@ -2,17 +2,15 @@
 # http://www.wunderground.com/
 # require APIkey module option
 
-from util import Mapping, commandSplit, functionHelp
-from urllib2 import Request, urlopen, HTTPError
-from urllib import urlencode
+from urllib.request import urlopen
+from urllib.parse import urlencode
 from json import load
 
-from traceback import format_exc
 
 from util.settings import ConfigException
 
 OPTIONS = {
-	"API_KEY" : (unicode, "API key for use with Weather Underground services.", u"not_a_key"),
+	"API_KEY" : (str, "API key for use with Weather Underground services.", "not_a_key"),
 }
 
 # key, features, lat, lon
@@ -24,7 +22,7 @@ CSE_ID = None
 
 def lookup_location(query):
 	""" helper to ask WU for location data. Returns name, lat, lon"""
-	f = urlopen(LOC_URL % (urlencode({"query" : query.encode("utf-8")})))
+	f = urlopen(LOC_URL % (urlencode({"query" : query})))
 	locdata = load(f)
 	if f.getcode() == 200:
 		if "RESULTS" in locdata:

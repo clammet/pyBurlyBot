@@ -1,17 +1,13 @@
-# word based API
-# using Cambridge Dictionaries Online
-# 
-# require APIkey module option
-
-from urllib2 import Request, urlopen, HTTPError
-from urllib import quote, urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.parse import quote, urlencode
 from json import load
-from xml.etree.cElementTree import iterparse
+from xml.etree.ElementTree import iterparse
 from util.settings import ConfigException
-from cStringIO import StringIO
+from io import BytesIO
 
 OPTIONS = {
-	"API_KEY" : (unicode, "API key for use with Cambridge Dictionaries Online's services.", u""),
+	"API_KEY" : (str, "API key for use with Cambridge Dictionaries Online's services.", ""),
 }
 
 DICT_ORDER = [
@@ -34,7 +30,7 @@ def spell_check(query, skipSearch=False):
 	if not skipSearch and word_search(query):
 		return None
 	else:
-		r = Request(DIDYOUMEAN_URL % (DICT_ORDER[0], urlencode({"q" : query.lower().encode("utf-8")})))
+		r = Request(DIDYOUMEAN_URL % (DICT_ORDER[0], urlencode({"q" : query.lower()})))
 		r.add_header("accessKey", API_KEY)
 		return load(urlopen(r))['suggestions']
 
@@ -43,7 +39,7 @@ def word_search(query):
 	if not API_KEY:
 		raise ConfigException("Require API_KEY for wordsapi. Reload after setting.")
 	for d in DICT_ORDER:
-		r = Request(SEARCH_URL % (d, quote(query.lower().encode("utf-8"))))
+		r = Request(SEARCH_URL % (d, quote(query.lower())))
 		r.add_header("accessKey", API_KEY)
 		try:
 			f = urlopen(r)
@@ -51,11 +47,10 @@ def word_search(query):
 			continue
 		data = load(f)
 		if 'entryContent' in data:				
-			#print repr(data['entryContent'])
-			data = StringIO(data['entryContent'].encode("utf-8"))
+			data = BytesIO(data['entryContent'].encode("utf-8"))
 			context = iterparse(data, events=("end","start"))
 			# get the root element
-			ievent, root = context.next()
+			ievent, root = next(context)
 			definitions = [] # [[POS, [defs]],]
 			usage = None
 			defchild = False
@@ -101,7 +96,7 @@ def word_synonyms(query):
 	
 	data = None
 	for d in DICT_ORDER:
-		r = Request(SEARCH_URL % (d, quote(query.lower().encode("utf-8"))))
+		r = Request(SEARCH_URL % (d, quote(query.lower())))
 		r.add_header("accessKey", API_KEY)
 		try:
 			f = urlopen(r)
@@ -126,4 +121,3 @@ def init(bot):
 	global API_KEY # oh nooooooooooooooooo
 	API_KEY = bot.getOption("API_KEY", module="pbm_wordsapi")
 	return True
-

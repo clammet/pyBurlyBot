@@ -14,11 +14,11 @@ def waitexample(event, bot):
 			count += 1
 			if count > 1: raise Exception()
 	except TimeoutException:
-		print "TIMEOUT!"
-	print "bailed generator"
+		print("TIMEOUT!")
+	print("bailed generator")
 	
 def printwaits(s):
-	print s.dispatcher.waitmap
+	print(s.dispatcher.waitmap)
 
 # never ever do something like this please, please. This is debugging example.	
 def waitlist(event, bot):

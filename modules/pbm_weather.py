@@ -1,7 +1,7 @@
 # https://openweathermap.org
 # require APIkey module option
 
-from util import Mapping, WDAY_SHORTMAP, irctools
+from util import Mapping, WDAY_SHORTMAP
 from time import gmtime, time
 
 REQUIRES = ("pbm_location", "pbm_openweathermap_api")

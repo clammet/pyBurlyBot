@@ -3,14 +3,14 @@
 from whoosh.index import create_in, open_dir, exists_in
 from whoosh.fields import DATETIME, Schema, TEXT, NUMERIC
 from whoosh.qparser import QueryParser
-from whoosh.query import Term, And
+from whoosh.query import Term
 from whoosh.sorting import Count, FieldFacet
 
 from multiprocessing import Process, Pipe
 
 from threading import current_thread, Thread
 
-from Queue import Queue, Empty
+from queue import Queue, Empty
 
 from collections import deque
 
@@ -34,7 +34,7 @@ SCHEMA = Schema(id=NUMERIC(numtype=int, bits=64, stored=True, unique=True), time
 	nick=TEXT(stored=True), user=TEXT(stored=True), source=TEXT(stored=True), content=TEXT(stored=True))
 
 OPTIONS = {
-	"indexdir" : (unicode, "Dir where log indexes are stored.", "logindex"),
+	"indexdir" : (str, "Dir where log indexes are stored.", "logindex"),
 }
 REQUIRES = ("pbm_users",)
 USERS_MODULE = None
@@ -54,22 +54,13 @@ STOP = -1
 
 LOG_FORMAT = "<%s> %s" # <nick> msg
 
-# ============= FOR DEBUGGING SESSION
-#~ from whoosh.index import create_in, open_dir, exists_in
-#~ from whoosh.fields import DATETIME, Schema, TEXT, NUMERIC
-#~ from whoosh.qparser import QueryParser
-#~ from whoosh.query import Term, And
-#~ ix = open_dir("logindex/Rizon")
-#~ s = ix.searcher()
-# ============= FOR DEBUGGING SESSION
-
 def prnt(s):
-	print s
+	print(s)
 	stdout.flush()
 
 class IndexProcess(Process):
 	def __init__(self, network, indexdir, indexp):
-		Process.__init__(self)
+		super().__init__()
 		self.index_p = indexp
 		self.indexdir = join(indexdir, network)
 		self.network = network
@@ -91,7 +82,7 @@ class IndexProcess(Process):
 					data = buffer.popleft() # timestamp, nick, user, source, msg
 					iw.add_document(id=id, timestamp=data[0], nick=data[1], user=data[2], source=data[3], content=data[4])
 				except IndexError: break
-				except:
+				except Exception:
 					print_exc()
 					prnt("EXCEPTION IN LOGGER")
 				else:
@@ -101,14 +92,14 @@ class IndexProcess(Process):
 		old, new = data
 		self._dumpBuffer(self.buffer)
 		self.searcher = self.ix.searcher()
-		results = self.searcher.search(Term(u'user', old.lower()), limit=None)
+		results = self.searcher.search(Term('user', old.lower()), limit=None)
 		with self.ix.writer() as iw:
 			# dump buffer
 			for hit in results:
 				try: 
 					iw.update_document(id=hit['id'], timestamp=hit["timestamp"], 
 						nick=hit["nick"], user=new, source=hit["source"], content=hit["content"])
-				except:
+				except Exception:
 					print_exc()
 					prnt("EXCEPTION IN RENAME")
 		self.searcher = self.ix.searcher()
@@ -119,14 +110,14 @@ class IndexProcess(Process):
 			threadident, source, query, n, gb = data
 			qp = self.qp.parse(query)
 			results = []
-			if not SOURCE_REGEX.match(query): qp = qp & Term(u"source", source.lstrip(CHANNEL_PREFIXES).lower())
+			if not SOURCE_REGEX.match(query): qp = qp & Term("source", source.lstrip(CHANNEL_PREFIXES).lower())
 			if not gb:
 				for item in self.searcher.search(qp, limit=n, groupedby=gb):
 					results.append((item["timestamp"], item["nick"], item["source"], item["content"]))
 			else:
-				for user, count in self.searcher.search(qp, groupedby=FieldFacet(gb, maptype=Count)).groups().iteritems():
+				for user, count in self.searcher.search(qp, groupedby=FieldFacet(gb, maptype=Count)).groups().items():
 					results.append((count, user))
-		except:
+		except Exception:
 			self.index_p.send((threadident, None)) # pass None back to caller so user error can be displayed.
 			print_exc()
 			prnt("EXCEPTION IN SEARCH")
@@ -157,7 +148,7 @@ class IndexProcess(Process):
 					elif type == RENAME: self._processRename(data)
 					else:
 						prnt("Unexpected data in logindexsearch.")
-				except:
+				except Exception:
 					print_exc()
 					prnt("EXCEPTION in logindexsearch process.")
 			except KeyboardInterrupt:
@@ -168,7 +159,7 @@ class IndexProcess(Process):
 
 class IndexProxy(Thread):
 	def __init__(self, network, indexdir, cmdprefix):
-		Thread.__init__(self)
+		super().__init__()
 		self.module_p, index_p = Pipe()
 		self.proc = IndexProcess(network, indexdir, index_p)
 		self.proc.start()
@@ -195,7 +186,7 @@ class IndexProxy(Thread):
 						procpipe.send((type, data))
 					else:
 						procpipe.send((type, data))
-				except:
+				except Exception:
 					print_exc()
 					prnt("IndexProxy Exception in pump.")
 			# process pipe data
@@ -205,7 +196,7 @@ class IndexProxy(Thread):
 					self.waiting.pop(tid).put(result)
 				except KeyError:
 					prnt("WAITING THREAD ID NOT FOUND FOR RESULT:"+repr(result))
-		for queue in self.waiting.itervalues():
+		for queue in self.waiting.values():
 			queue.put(None)
 	
 	def search(self, source, query, n, gb=None):
@@ -265,7 +256,7 @@ def logsearch(event, bot):
 				body = "%s: %%s" % title
 				pastehelper(bot, body, items=(LOG_FORMAT % (x[1], x[3]) for x in results), title=title, altmsg="%s", force=True)
 			else:
-				bot.say("{0}", fcfs=True, strins=[LOG_FORMAT % (x[1], x[3]) for x in results], joinsep=u"\x02 | \x02")
+				bot.say("{0}", fcfs=True, strins=[LOG_FORMAT % (x[1], x[3]) for x in results], joinsep="\x02 | \x02")
 
 def logstats(event, bot):
 	iproxy = INDEX_PROXIES.get(bot.network)
@@ -290,11 +281,11 @@ def init(bot):
 		proxy.start()
 		USERS_MODULE.REGISTER_UPDATE(bot.network, _user_rename, external=True)
 	else:
-		print "WARNING: Already have log proxy for (%s) network." % bot.network
+		print("WARNING: Already have log proxy for (%s) network." % bot.network)
 	return True
 	
 def unload():
-	for lproc in INDEX_PROXIES.itervalues():
+	for lproc in INDEX_PROXIES.values():
 		lproc.stop()
 
 mappings = (Mapping(types=["privmsged"], function=logmsg), Mapping(command="log", function=logsearch),

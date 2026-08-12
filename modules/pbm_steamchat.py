@@ -1,10 +1,11 @@
 ### IN DEVELOPMENT 
 # Cool Steamchat module. Allows relaying between IRC<->Steam, and allows usage of module commands from Steam!
-from json import load, loads
+from json import loads
 from base64 import b64encode
+from urllib.parse import urlencode
 from time import sleep, time
 from threading import Thread
-from Queue import Queue, Empty
+from queue import Queue, Empty
 from collections import deque, OrderedDict
 from traceback import print_exc, format_tb
 
@@ -48,9 +49,9 @@ STOP_SNOOP = "\x02%s\x02 has \x02stopped\x02 snopping %s"
 USER_ITEM = "%s - %s"
 
 OPTIONS = {
-	"username" : (unicode, "username of steam account", u""),
-	"password" : (unicode, "password of steam account", u""),
-	"oauthtoken" : (unicode, "oauth token for later use", u""),
+	"username" : (str, "username of steam account", ""),
+	"password" : (str, "password of steam account", ""),
+	"oauthtoken" : (str, "oauth token for later use", ""),
 	"allowedModules" : (list, 'List of modules which commands can be used from. Only "commands" will be loaded.', []),
 }
 
@@ -64,7 +65,7 @@ OFFLINE_THRESHOLD = 5*60
 
 COOLDOWN = 15*60 #hour
 
-class SteamIRCBotWrapper(object):
+class SteamIRCBotWrapper:
 	""" Taken mostly from util.wrapper """
 	def __init__(self, event, botcont, steamchat):
 		self.event = event
@@ -76,14 +77,14 @@ class SteamIRCBotWrapper(object):
 		return getattr(self._botcont, name)
 	
 	def say(self, msg, **kwargs):
-		print repr(msg), kwargs
+		print(repr(msg), kwargs)
 		su = self.event.kwargs.get('steamuser')
 		if su:
 			strins = kwargs.get("strins")
 			joinsep = kwargs.get("joinsep")
 			if strins:
 				if joinsep is not None: msg = msg.format(joinsep.join(strins))
-				else: msg = unicode(msg).format(*strins)
+				else: msg = str(msg).format(*strins)
 			self._steamchat.steamSay(su.id, msg)
 		else:
 			dest = self.event.nick if self.event.nick else self.event.target
@@ -129,11 +130,11 @@ class SteamIRCBotWrapper(object):
 				self.say("%s: %s. Don't know where, check log." % (type(ex).__name__, ex))
 		else:
 			self.say("Error: %s" % str(e))
-			print "error:", e
+			print("error:", e)
 
 class SteamPoller(Thread):
 	def __init__(self, inq, accesstoken, umqid, msgid):
-		Thread.__init__(self)
+		super().__init__()
 		self.steamchatq = inq
 		self.pollerq = Queue()
 		self.umqid = umqid
@@ -147,7 +148,7 @@ class SteamPoller(Thread):
 			"pollid" : pollid, "sectimeout" : 20, "secidletime" : 10, "use_accountids" : 0}
 		while True:
 			try: item = self.pollerq.get(False) # Don't block on this, only on urlopen
-			except: pass
+			except Empty: pass
 			else: 
 				if item == "QUIT": break
 			#else continue with long GET
@@ -168,18 +169,18 @@ class SteamPoller(Thread):
 			elif err == "Not Logged On": 
 				self.steamchatq.put(("steamDC", ()))
 				break
-			elif err != "Timeout": print "===========WAT HAPEN? (%s)===========\n%s" % (err, rdata)
+			elif err != "Timeout": print("===========WAT HAPEN? (%s)===========\n%s" % (err, rdata))
 			pollid += 1
-		print "SHUT DOWN STEAMPOLLER"
+		print("SHUT DOWN STEAMPOLLER")
 	
 	def stop(self):
 		self.pollerq.put("QUIT")
 
-class SteamUser(object):
+class SteamUser:
 	def __init__(self, id, name=None):
 		self.id = id
 		self.name = name
-		self.channels = set([])
+		self.channels = set()
 		self.offlinetime = None
 		
 	def getName(self):
@@ -188,7 +189,7 @@ class SteamUser(object):
 # Steam thread
 class SteamChat(Thread):
 	def __init__(self, container, cmdprefix, allowedmodules):
-		Thread.__init__(self)
+		super().__init__()
 		self.cmdQueue = Queue()
 		self.name = "SteamChatThread-%s" % container.network
 		self.container = container
@@ -201,7 +202,7 @@ class SteamChat(Thread):
 		self.users = {} # {userid : SteamUser}
 		
 		self.channels = {} # reverse mapping of the above {channel : set(users)}
-		self.offlineusers = set([]) # for easy checking of temporary offline users
+		self.offlineusers = set() # for easy checking of temporary offline users
 		self.poller = None
 		self.sendready = False
 		self.senddict = {}
@@ -221,7 +222,7 @@ class SteamChat(Thread):
 	def populateCommandMap(self):
 		# command map. SOMETHING LIKE THIS SHOULD NEVER BE DONE. GOSH.
 		self.cmdMap = self.container._settings.dispatcher.eventmap.get("privmsged", {}).get("command", {}).copy()
-		for cmd, mappings in self.cmdMap.items():
+		for cmd, mappings in list(self.cmdMap.items()):
 			for mapping in mappings:
 				try:
 					remove = mapping.function.__module__.split("_", 1)[1] not in self.allowedmodules
@@ -244,24 +245,24 @@ class SteamChat(Thread):
 			except Empty: pass
 			else:
 				#process queue item
-				print "PROCESSING... %s(%s)" % (cmd, args)
+				print("PROCESSING... %s(%s)" % (cmd, args))
 				if cmd == "QUIT": break
 				else:
 					# attempt to dispatch to method
 					try: getattr(self, cmd)(*args)
-					except Exception as e:
-						print "ERROR IN STEAMCHAT LOOP STEAMCHAT FUNC:"
+					except Exception:
+						print("ERROR IN STEAMCHAT LOOP STEAMCHAT FUNC:")
 						print_exc()
 						
 			try: self.purgeOffline()
-			except Exception as e:
-				print "ERROR in purgeOffline():"
+			except Exception:
+				print("ERROR in purgeOffline():")
 				print_exc()
 			if self.doout and time() > (t + 0.8): # 0.8 arbitrary delay
 				# process outbound messages
 				try: self._processOutbound()
-				except Exception as e:
-					print "ERROR in _processOutbound:"
+				except Exception:
+					print("ERROR in _processOutbound:")
 					print_exc()
 				t = time()
 			sleep(0.1)
@@ -275,11 +276,11 @@ class SteamChat(Thread):
 			r = self.session.post(CHAT_LOGOUT_URL, sd)
 			try:
 				r.raise_for_status()
-			except HTTPError as e:
-				print "Exception when attempting logout:"
+			except HTTPError:
+				print("Exception when attempting logout:")
 				print_exc()
 			else:
-				print "LOGGED OUT OF STEAM"
+				print("LOGGED OUT OF STEAM")
 	
 	def getUser(self, uid):
 		return self.users.setdefault(uid, SteamUser(uid))
@@ -287,7 +288,7 @@ class SteamChat(Thread):
 	def findUser(self, user):
 		if user in self.users: return self.users[user]
 		else:
-			for u in self.users.itervalues():
+			for u in self.users.values():
 				if u.name == user: return u
 		return None
 	
@@ -345,7 +346,7 @@ class SteamChat(Thread):
 				#else listen to channel
 				else:
 					u.channels.add(argument)
-					self.channels.setdefault(argument, set([])).add(u)
+					self.channels.setdefault(argument, set()).add(u)
 					self.ircSay(argument, START_SNOOP % (u.getName(), argument))
 					self.steamSay(sourceid, "Listening to (%s)" % argument)
 					backlog = self.channelbacklog.get(argument, [])
@@ -450,7 +451,7 @@ class SteamChat(Thread):
 		self.senddict.clear()
 
 	def steamSay(self, userid, msg):
-		print "SENDING TO (%s): %s" % (userid, repr(msg))
+		print("SENDING TO (%s): %s" % (userid, repr(msg)))
 		self.outbound.setdefault(userid, deque(maxlen=10)).append(msg)
 		self.doout = True
 	
@@ -462,22 +463,22 @@ class SteamChat(Thread):
 		if not self.outbound:
 			self.doout = False
 		d = self.senddict.copy()
-		print "SENDING BATCH TO (%s) %s" % (userid, self.users[userid].getName())
+		print("SENDING BATCH TO (%s) %s" % (userid, self.users[userid].getName()))
 		d['steamid_dst'] = userid
-		d['text'] = ("\n".join(msgs)).encode(self.container._settings.encoding)
+		d['text'] = "\n".join(msgs)
 		rdata = None
 		try: rdata = self.session.post(SENDMSG_URL, d)
-		except ConnectionError as e:
-			print "Connection error, retrying send..."
+		except ConnectionError:
+			print("Connection error, retrying send...")
 			try: rdata = self.session.post(SENDMSG_URL, d)
-			except ConnectionError as e:
-				print "CONNECTION ERROR. DID NOT SEND:", d
+			except ConnectionError:
+				print("CONNECTION ERROR. DID NOT SEND:", d)
 				print_exc()
 		if rdata is not None:
 			try:
 				rdata.raise_for_status()
-			except Exception as e:
-				print "ERROR ON OUTBOUND, assume disconnected."
+			except Exception:
+				print("ERROR ON OUTBOUND, assume disconnected.")
 				print_exc()
 				self.oauth = None
 				self.checkAndStopPoll()
@@ -486,7 +487,7 @@ class SteamChat(Thread):
 	# if oauth token gotten, log in to webchat and start poller
 	def login(self):
 		# get username and password from moduleoptions
-		print "ATTEMPTING LOGIN"
+		print("ATTEMPTING LOGIN")
 		self.checkAndStopPoll()
 		if not self.oauth:
 			username = self.container.getOption("username", module="pbm_steamchat")
@@ -497,24 +498,24 @@ class SteamChat(Thread):
 				rdata = self.session.get(RSAKEY_URL % urlencode(d)).json()
 				if rdata['success']: 
 					# hash password and attempt login proper to steamcommunity
-					d['password'] = b64encode(encrypt(password.encode("utf-8"), PublicKey(int(rdata['publickey_mod'], 16), int(rdata['publickey_exp'], 16))))
+					d['password'] = b64encode(encrypt(password.encode("utf-8"), PublicKey(int(rdata['publickey_mod'], 16), int(rdata['publickey_exp'], 16)))).decode("ascii")
 					d['rsatimestamp'] = rdata['timestamp']
 					d['oauth_client_id'] = LOGIN_CLIENT_ID
 					rdata = self.session.post(LOGIN_URL, d).json()
 					if rdata['success'] and 'oauth' in rdata:
 						self.oauth = loads(rdata['oauth'])['oauth_token']
 					else:
-						print "FAILED DATA: \n%s" % repr(rdata)
-		else: print "HAD OAUTH, USING"
+						print("FAILED DATA: \n%s" % repr(rdata))
+		else: print("HAD OAUTH, USING")
 		# logged in to steam community, now login to webchat...
 		if self.oauth:
 			try:
 				rcdata = self.session.post(CHAT_LOGIN_URL, {"access_token" : self.oauth})
 				rcdata.raise_for_status()
 				rcdata = rcdata.json()
-				print "LOGGED IN TO WEBCHAT"
+				print("LOGGED IN TO WEBCHAT")
 			except HTTPError as e:
-				print e
+				print(e)
 				self.oauth = None
 			else:
 				self.senddict = {"access_token" : self.oauth, "umqid" : rcdata['umqid'], "type" : "saytext"}
@@ -523,7 +524,7 @@ class SteamChat(Thread):
 				self.sendready = True
 		#persist oauth key (even if we ended up trashing the old one, it might not be valid anymore)
 		if not self.oauth:
-			print "FAILED TO LOGIN, DOING COOLDOWN"
+			print("FAILED TO LOGIN, DOING COOLDOWN")
 			self.cooldownuntil = time() + COOLDOWN
 			self.checkAndStopPoll()
 		self.container.setOption("oauthtoken", self.oauth, module="pbm_steamchat", channel=False)
@@ -611,8 +612,8 @@ def processBotSendmsg(event, bot):
 				else: msg = event.msg
 				steamSource = event.kwargs.get("steamSource")
 				cthread.fromIRC("ircMSG", event.target, event.nick, msg, steamSource)
-	except Exception as e:
-		print "SENDMSG EVENT EXCEPTION"
+	except Exception:
+		print("SENDMSG EVENT EXCEPTION")
 		print_exc()
 
 def init(bot):
@@ -622,13 +623,13 @@ def init(bot):
 			CHAT_THREADS[bot.network] = SteamChat(bot.container, bot.getOption("commandprefix"), 
 				bot.getOption("allowedModules", module="pbm_steamchat")) # bit silly, but whatever
 		else:
-			print "WARNING: Already have thread for (%s) network." % bot.network
+			print("WARNING: Already have thread for (%s) network." % bot.network)
 	else:
 		raise ConfigException('steamchat module requires "enablestate" option')
 	return True
 	
 def unload():
-	for cthread in CHAT_THREADS.itervalues():
+	for cthread in CHAT_THREADS.values():
 		cthread.stop()
 
 mappings = (Mapping(types=["privmsged"], function=relaymsg), Mapping(types=("kickedFrom", "left"), function=doleft),

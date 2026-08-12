@@ -1,6 +1,6 @@
 # Google search module
 
-from util import Mapping, commandSplit, functionHelp
+from util import Mapping, functionHelp
 
 REQUIRES = ("pbm_googleapi",)
 GAPI_MODULE = None
@@ -49,7 +49,7 @@ def google_image(event, bot):
 				entries.append(RESULT_IMG2 % (item[0], item[1]))
 			else:
 				entries.append(RESULT_IMG % (item[0], item[1]))
-		if len(entries) < NUM_IMGS: entries = entries+[""]*(NUM_IMGS-len(l))
+		if len(entries) < NUM_IMGS: entries = entries+[""]*(NUM_IMGS-len(entries))
 		
 		if spelling:
 			bot.say(RESULTS_SPELL_IMG % spelling, fcfs=True, strins=entries)

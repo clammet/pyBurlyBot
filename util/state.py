@@ -2,13 +2,10 @@
 
 # State MUST be READ ONLY from modules.
 # Iteration MUST be performed over copies of .keys() and such else RuntimeError will most likely be raised.
-# This will work for python 2.x because ~GIL MAJIKS~ http://blog.labix.org/2008/06/27/watch-out-for-listdictkeys-in-python-3
 # went this route because I don't want to copy these containers when it isn't really necessary and they may be huge.
 # TODO: devise proper way to go about the above with minimal (nested?) copying
 
 from time import time
-from twisted.internet import reactor
-from twisted.internet.threads import blockingCallFromThread
 
 class Channel:
 	def __init__(self, name, modes = None):
@@ -100,7 +97,7 @@ class Network:
 		
 	def _nukechannel(self, channel):
 		if channel in self.channels:
-			for user in self.channels[channel].users.itervalues():
+			for user in self.channels[channel].users.values():
 				user.channels.remove(channel)
 				if not user.channels:
 					#user not known in any channels, remove existance
@@ -168,7 +165,7 @@ class Network:
 				u.channels.remove(channel)
 		else:
 			# TODO: remove this print, debug
-			print "WARNING: user (%s) was never known about... 2SPOOKY" % user
+			print("WARNING: user (%s) was never known about... 2SPOOKY" % nick)
 
 	# TODO: This could probably be less wordly, also check if KeyErrors and pop's
 	#	will present a problem

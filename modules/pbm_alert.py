@@ -1,5 +1,5 @@
 #alert module
-from time import gmtime, localtime, time
+from time import gmtime, localtime
 from util import Timers, TimerExists
 from calendar import timegm
 from collections import deque
@@ -7,7 +7,6 @@ from collections import deque
 from util import Mapping, argumentSplit, functionHelp, distance_of_time_in_words,\
 	pastehelper, english_list, parseDateTime
 from util.settings import ConfigException
-from pprint import pprint
 
 TIMER_NAME = 'alert_timer'
 REQUIRES = ("pbm_users",)
@@ -16,11 +15,11 @@ TELLDELIVER_OBJ = None
 # Seconds
 LOOP_INTERVAL = 30.0
 
-MULTIUSER = u" %s someone once is enough."
-RPL_ALERT_FORMAT = u"%s: I will alert %s about that %s.%s%s"
-ALERT_FORMAT = u"{0}, alert from {1}: {2} - set {3}."
-SELF_ALERT_FORMAT = u"{0}, alert: {1} - set {2}."
-UNKNOWN = u" Don't know (%s)."
+MULTIUSER = " %s someone once is enough."
+RPL_ALERT_FORMAT = "%s: I will alert %s about that %s.%s%s"
+ALERT_FORMAT = "{0}, alert from {1}: {2} - set {3}."
+SELF_ALERT_FORMAT = "{0}, alert: {1} - set {2}."
+UNKNOWN = " Don't know (%s)."
 
 MAX_REMIND_TIME = 31540000 # 1 year
 
@@ -66,10 +65,10 @@ def check_alerts_callback(bot=None):
 		else:
 			deliver_soon.setdefault(chan_or_user, []).append(a)
 
-	for chan_or_user, alerts in deliver_now.iteritems():
+	for chan_or_user, alerts in deliver_now.items():
 		deliver_alerts(chan_or_user, alerts)
 
-	for chan_or_user, alerts in deliver_soon.iteritems():
+	for chan_or_user, alerts in deliver_soon.items():
 		ids = '_'.join(str(x['id']) for x in alerts)
 		timer_name = '%s_%s' % (TIMER_NAME, ids)
 		try:

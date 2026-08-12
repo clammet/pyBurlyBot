@@ -10,12 +10,12 @@ from twisted.protocols.basic import LineReceiver
 from twisted.protocols.policies import TimeoutMixin
 
 # system imports
-from time import asctime, time
+from time import time
 from collections import deque
 from math import floor
 
 #BurlyBot imports
-from helpers import processHostmask, processListReply, PrefixMap, isIterable, commandlength, splitEncodedUnicode
+from .helpers import processHostmask, processListReply, PrefixMap, isIterable, splitEncodedUnicode
 
 # inject some other common symbolic IDs:
 symbolic_to_numeric["RPL_YOURID"] = '042'
@@ -44,7 +44,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	supported = None
 	altindex = 0
 	prefixlen = None
-	delimiter = '\r\n' # stick to specification
+	delimiter = b'\n' # LineReceiver adds this after _reallySendLine appends CR.
 	versionName = "pyBurlyBot git"
 	realname = "Burly Bot"
 	
@@ -55,9 +55,11 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	# custom sendline throttler. This might be overly complex but should behave similar to mIRC
 	# where lines are only throttled once you cross a threshold. I don't know if the cooldown is similar though
 	def sendLine(self, line):
-		#main point of encoding outbound messages:
-		if isinstance(line, unicode): line = line.encode(self.settings.encoding)
-		if len(line) > 510: line = line[:510] #blindly truncate to not get killed for huge messages.
+		if isinstance(line, bytes):
+			line = line.decode(self.settings.encoding, "replace")
+		encoded = line.encode(self.settings.encoding)
+		if len(encoded) > 510:
+			line = encoded[:510].decode(self.settings.encoding, "ignore")
 		t = time()
 		if self._lastmsg + 1 < t:
 			# if message hasn't been sent for 1 seconds, go for it
@@ -92,11 +94,12 @@ class BurlyBot(IRCClient, TimeoutMixin):
 
 	# sticking to specification
 	def _reallySendLine(self, line):
-		if self.debug >= 2: print "REALLY SENDING LINE:", repr(lowQuote(line) + self.delimiter)
-		return LineReceiver.sendLine(self, lowQuote(line) + self.delimiter)
+		quoted_line = lowQuote(line).encode(self.settings.encoding) + b'\r'
+		if self.debug >= 2: print("REALLY SENDING LINE:", repr(quoted_line + self.delimiter))
+		return LineReceiver.sendLine(self, quoted_line)
 	def dataReceived(self, data):
 		self.resetTimeout()
-		LineReceiver.dataReceived(self, data)
+		IRCClient.dataReceived(self, data)
 	
 	def names(self, channels):
 		"""
@@ -193,7 +196,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		"""
 		Called when we get a message.
 		"""
-		if self.debug >= 2: print "INCOMING PRIVMSG:", prefix, params
+		if self.debug >= 2: print("INCOMING PRIVMSG:", prefix, params)
 		user = prefix
 		channel = params[0]
 		message = params[-1]
@@ -223,7 +226,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		"""
 		Called when a user gets a notice.
 		"""
-		if self.debug >= 2: print "INCOMING NOTICE:", prefix, params
+		if self.debug >= 2: print("INCOMING NOTICE:", prefix, params)
 		user = prefix
 		channel = params[0]
 		message = params[-1]
@@ -412,12 +415,12 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	def irc_RPL_ISUPPORT(self, prefix, params):
 		IRCClient.irc_RPL_ISUPPORT(self, prefix, params)
 		# This seems excessive but it's the only way to reliably update the prefixmap
-		self.prefixmap.loadfromprefix(self.supported.getFeature("PREFIX").iteritems())
+		self.prefixmap.loadfromprefix(iter(self.supported.getFeature("PREFIX").items()))
 		
 	# This method is interesting, for example ERROR gets sent from Rizon when you quit
 	# TODO: find out what to actually do with this.
 	def irc_ERROR(self, prefix, params):
-		print "ERROR received: %s" % params
+		print("ERROR received: %s" % params)
 		
 	###
 	### Modified command handler from IRCCLient
@@ -429,11 +432,10 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		"""
 		method_name = "irc_%s" % command.upper()
 		method = getattr(self, method_name, None)
-		# print "INCOMING (%s): %s, %s" % (command, prefix, params)
 		try:
 			if callable(method):
 				method(prefix, params)
-		except:
+		except Exception:
 			log.deferr()
 		else:
 			# All low level (RPL_type) events dispatched as they are
@@ -448,7 +450,9 @@ class BurlyBot(IRCClient, TimeoutMixin):
 				self.irc_unknown(prefix, command, params)
 
 	def lineReceived(self, line):
-		if self.debug >= 3: print "INCOMING LINE: %s" % line
+		if isinstance(line, bytes):
+			line = line.decode(self.settings.encoding, "replace")
+		if self.debug >= 3: print("INCOMING LINE: %s" % line)
 		IRCClient.lineReceived(self, line)
 				
 	###
@@ -464,7 +468,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		nick, ident, host = processHostmask(user)
 		if nick == self.nickname:
 			# take note of our prefix! (for message length calculation
-			self.prefixlen = len(prefix)
+			self.prefixlen = len(user)
 		for tag, data in messages:
 			if tag not in seen:
 				#dispatch event					
@@ -509,18 +513,18 @@ class BurlyBot(IRCClient, TimeoutMixin):
 
 	def ctcpUnknownQuery(self, user, channel, tag, data):
 		if self.settings.debug:
-			print 'Unknown CTCP query from %r: %r %r' % (user, tag, data)
+			print('Unknown CTCP query from %r: %r %r' % (user, tag, data))
 
 	def signedOn(self):
 		"""
 		Called when bot has successfully signed on to server.
 		"""
-		print "[Signed on]"
+		print("[Signed on]")
 		
 		#process nickprefixes
 		# reason for this is to class prefixes in to "op" and "voice"
 		# and reason for that is because most important IRC operations are classed on OP or VOICE
-		self.prefixmap = PrefixMap(self.supported.getFeature("PREFIX").iteritems())
+		self.prefixmap = PrefixMap(iter(self.supported.getFeature("PREFIX").items()))
 		if self.state:
 			self.state.prefixmap = self.prefixmap
 		
@@ -562,7 +566,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		
 	def irc_unknown(self, prefix, command, params):
 		if self.settings.debug:
-			print "Unknown command: %s, %s, %s" % (prefix, command, params)
+			print("Unknown command: %s, %s, %s" % (prefix, command, params))
 	
 	###
 	### Custom outgoing methods
@@ -589,7 +593,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		return len(self._buildmsg(target, msg, check=True).encode(self.settings.encoding)) <= self.calcAvailableMsgLength("")
 		
 	def _buildmsg(self, target, message, split=False, check=False, strins=None, **kwargs):
-		if not isinstance(message, basestring): message = str(message)
+		if not isinstance(message, str): message = str(message)
 		if strins:
 			if split:
 				return (self.assembleMsgWLen('PRIVMSG %s :%s' % (target, msg), strins=strins, **kwargs) for msg in message.split("\n"))
@@ -619,7 +623,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	# 		You should make sure your data doesn't contain any of those characters (NL/CR/020/NUL)
 	def assembleMsgWLen(self, s, strins=None, fcfs=False, joinsep=None):
 		enc = self.settings.encoding
-		if isinstance(strins, basestring):
+		if isinstance(strins, str):
 			sl = self.calcAvailableMsgLength(s.format(""))
 			if sl <= 0: # case where template string is already too big
 				return splitEncodedUnicode(s, len(s)+sl, encoding=enc)[0][0]
@@ -629,7 +633,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		if joinsep is not None: 
 			# lj is len(joinsep) when comparing to avail in fcfs add 2 to allow some
 			# room for start of next element at least
-			if isinstance(joinsep, unicode): lj = len(joinsep.encode(enc))
+			if isinstance(joinsep, str): lj = len(joinsep.encode(enc))
 			else: lj = len(joinsep)
 		if isIterable(strins):
 			if joinsep is not None: avail = self.calcAvailableMsgLength(s.format("")) # must be only one replacement
@@ -673,14 +677,14 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			
 		elif isinstance(strins, dict):
 			# total space available for message
-			avail = self.calcAvailableMsgLength(s.format(**dict(((key, "") for key in strins.keys())))) # format with empty strins to calc max avail
+			avail = self.calcAvailableMsgLength(s.format(**dict(((key, "") for key in list(strins.keys()))))) # format with empty strins to calc max avail
 			if avail < 0: # case where template string is already too big
-				s = s.format(**dict(((key, "") for key in strins.keys())))
+				s = s.format(**dict(((key, "") for key in list(strins.keys()))))
 				return splitEncodedUnicode(s, len(s)+avail, encoding=enc)[0][0]
 			if fcfs:
 				# first come first served (NOTE: This doesn't make much sense for an unordered thing like a dictionary)
 				# hopefully we are passed an ordered dictionary or something that extends from dict.
-				for key, rep in strins.iteritems():
+				for key, rep in strins.items():
 					rep, lrep = splitEncodedUnicode(rep, avail, encoding=enc)[0]
 					strins[key] = rep
 					avail -= lrep
@@ -688,7 +692,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 			else:
 				# round 2, even divide
 				segmentlength = int(floor((avail / ls)))
-				for key, value in strins.iteritems():
+				for key, value in strins.items():
 					strins[key] = splitEncodedUnicode(value, segmentlength, encoding=enc)[0][0]
 				return s.format(**strins)
 		else:
@@ -697,9 +701,9 @@ class BurlyBot(IRCClient, TimeoutMixin):
 	def calcAvailableMsgLength(self, command):
 		if self.prefixlen:
 			# 510 = line terminator 508 = something else I'm not knowing about
-			return 508 - self.prefixlen - len(lowQuote(command.encode(self.settings.encoding)))
+			return 508 - self.prefixlen - len(lowQuote(command).encode(self.settings.encoding))
 		else:
-			return self._safeMaximumLineLength(lowQuote(command.encode(self.settings.encoding))) - 2 #line terminator
+			return self._safeMaximumLineLength(lowQuote(command)) - 2 #line terminator
 
 	###
 	### Connection management methods
@@ -719,7 +723,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		self.container._setBotinst(None)
 		if self.state: self.state._resetnetwork()
 		# TODO: reason needs to be properly formatted/actual reason being extracted from the "Failure" or whatever
-		print "[disconnected: %s]" % reason
+		print("[disconnected: %s]" % reason)
 
 class BurlyBotFactory(ReconnectingClientFactory):
 	"""

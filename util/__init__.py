@@ -1,14 +1,23 @@
-from re import compile as recompile, IGNORECASE, UNICODE, VERBOSE
-from timer import Timers, TimerExists, TimerInvalidName, TimerNotFound
-from container import TimeoutException
-from helpers import distance_of_time_in_words, processHostmask, commandSplit, argumentSplit, \
+from re import compile as recompile, IGNORECASE, VERBOSE
+from .timer import Timers, TimerExists, TimerInvalidName, TimerNotFound
+from .container import TimeoutException
+from .helpers import distance_of_time_in_words, processHostmask, commandSplit, argumentSplit, \
 	commandlength, functionHelp, coerceToUnicode, parseDateTime, match_hostmask, WDAY_MAP, WDAY_SHORTMAP
-from mapping import Mapping
-from db import fetchone, fetchall, fetchmany
+from .mapping import Mapping
+from .db import fetchone, fetchall, fetchmany
+
+__all__ = (
+	"Timers", "TimerExists", "TimerInvalidName", "TimerNotFound",
+	"TimeoutException", "distance_of_time_in_words", "processHostmask",
+	"commandSplit", "argumentSplit", "commandlength", "functionHelp",
+	"coerceToUnicode", "parseDateTime", "match_hostmask", "WDAY_MAP",
+	"WDAY_SHORTMAP", "Mapping", "fetchone", "fetchall", "fetchmany",
+	"pastehelper", "english_list", "URLREGEX",
+)
 
 
 def pastehelper(bot, basemsg, items=None, altmsg=None, sep=(", ","\n"), force=False, **kwargs):
-	""" If using items, altmsg is an alternate basestring to use for interpolation with the items list."""
+	"""If using items, altmsg is an alternate string to interpolate with the items list."""
 	try:
 		tmsg = basemsg
 		if not force:
@@ -31,14 +40,14 @@ def pastehelper(bot, basemsg, items=None, altmsg=None, sep=(", ","\n"), force=Fa
 				bot.say(basemsg % "Error: too many entries to list and no paste addon.")
 			else:
 				bot.say(basemsg % "Error: too much data and no paste addon.")
-	except:
+	except Exception:
 		# make sure contents of paste is at least dumped somewhere for recovery if need be.
 		if items is not None:
 			if altmsg: tmsg = altmsg % sep[1].join(items)
 			else: tmsg = basemsg % sep[1].join(items)
 		else:
 			tmsg = basemsg
-		print "ATTEMPTED PASTEHELPER MSG: %r" % tmsg
+		print("ATTEMPTED PASTEHELPER MSG: %r" % tmsg)
 		raise
 
 
@@ -60,4 +69,4 @@ URLREGEX = recompile(r"""
 (?:[\w%./_~!$&'()*+,;=:@-]+)?	# path
 (?:\?[^ #\n\r]+)?				# querystring
 (?:\#[^ #\n\r]+)?				# anchor (shouldn't be nested in querystring group)
-""", UNICODE|IGNORECASE|VERBOSE)
+""", IGNORECASE|VERBOSE)

@@ -1,12 +1,9 @@
 #codings module
 # for things like md5ing, rot13, urlencode, unquoting and so on
-from hashlib import algorithms, md5, new
-try:
-	from hashlib import algorithms_available
-except ImportError:
-	algorithms_available = None
+from hashlib import algorithms_available, md5, new
 from zlib import crc32
-from urllib import unquote, quote
+from urllib.parse import unquote, quote
+from codecs import decode as codecs_decode, encode as codecs_encode
 
 from util import Mapping, argumentSplit, functionHelp
 
@@ -15,12 +12,9 @@ def hash(event, bot):
 	method, content = argumentSplit(event.argument, 2)
 	if not (method and content):
 		if method == "methods":
-			if algorithms_available:
-				return bot.say("Supported hash methods: %s" % ", ".join(algorithms_available))
-			else:
-				return bot.say("Supported hash methods: %s" % ", ".join(algorithms))
+			return bot.say("Supported hash methods: %s" % ", ".join(sorted(algorithms_available)))
 		return bot.say(functionHelp(hash))
-	if (algorithms_available and (method not in algorithms_available)) or (not algorithms_available and method not in algorithms):
+	if method not in algorithms_available:
 		return bot.say("Unknown method (%s). Use \x02hash methods\x02 to see what methods are supported.")
 	h = new(method)
 	h.update(content.encode("utf-8"))
@@ -38,7 +32,7 @@ def rot13(event, bot):
 	arg = event.argument
 	if not arg:
 		return bot.say(functionHelp(rot13))
-	bot.say(arg.encode("rot13", "ignore"))
+	bot.say(codecs_encode(arg, "rot_13", "ignore"))
 
 def crc(event, bot):
 	""" crc content. content will be crc32 encoded (after encoding to utf-8.)"""
@@ -52,14 +46,14 @@ def funquote(event, bot):
 	arg = event.argument
 	if not arg:
 		return bot.say(functionHelp(funquote))
-	bot.say(unquote(str(arg)).decode("utf-8"))
+	bot.say(unquote(str(arg)))
 	
 def fquote(event, bot):
 	""" quote content. content will be URL encoded."""
 	arg = event.argument
 	if not arg:
 		return bot.say(functionHelp(fquote))
-	bot.say(quote(arg.encode("utf-8")))
+	bot.say(quote(arg))
 	
 def fencode(event, bot):
 	""" encode encoding content. content will be encoded according to provided encoding. Will be displayed using python's repr. 
@@ -71,8 +65,8 @@ def fencode(event, bot):
 	try: 
 		try:
 			bot.say(repr(content.encode(method)))
-		except (UnicodeEncodeError, UnicodeDecodeError): 
-			bot.say(repr(content.encode("utf-8").encode(method)))
+		except (LookupError, UnicodeError):
+			bot.say(repr(codecs_encode(content.encode("utf-8"), method)))
 	except LookupError: bot.say("Unknown encoding. Available encodings: https://docs.python.org/2/library/codecs.html#standard-encodings")
 	except (UnicodeEncodeError, UnicodeDecodeError): bot.say("Can't encode.")
 
@@ -84,22 +78,15 @@ def fdecode(event, bot):
 	method, content = argumentSplit(event.argument, 2)
 	if not (method and content):
 		return bot.say(functionHelp(fdecode))
-	# some crazy voodoo
-	try: 
-		try:
-			if method.endswith("|repr"): 
-				o = content.decode("string_escape").decode(method[:-5])
-			else: 
-				o = content.decode(method)			
-			if isinstance(o, unicode): bot.say(o)
-			else: bot.say(repr(o))
-		except (UnicodeEncodeError, UnicodeDecodeError): 
-			if method.endswith("|repr"): 
-				o = content.encode("utf-8").decode("string_escape").decode(method[:-5])
-			else:
-				o = content.encode("utf-8").decode(method)
-			if isinstance(o, unicode): bot.say(o)
-			else: bot.say(repr(o))
+	try:
+		if method.endswith("|repr"):
+			method = method[:-5]
+			escaped = codecs_decode(content, "unicode_escape")
+			raw = escaped.encode("latin-1")
+		else:
+			raw = content.encode("latin-1")
+		o = raw.decode(method)
+		bot.say(o)
 	except LookupError: bot.say("Unknown encoding. Available encodings: https://docs.python.org/2/library/codecs.html#standard-encodings")
 	except (UnicodeEncodeError, UnicodeDecodeError): bot.say("Can't decode.")
 	

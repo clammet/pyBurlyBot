@@ -11,7 +11,6 @@ from twisted.internet.threads import blockingCallFromThread
 
 from functools import partial
 from util import Mapping, argumentSplit, functionHelp, pastehelper
-from json import loads, dumps
 
 OPTIONS = {
 	"commands" : (list, 'List of [[command], output]. E.g. [["someurl"], "URL: http://google.com"] will output "URL: http://google.com" on usage of the "someurl" command.'

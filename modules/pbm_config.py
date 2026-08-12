@@ -8,7 +8,7 @@ from twisted.internet.threads import blockingCallFromThread
 
 from json import dumps, loads
 
-PRIVATE_OPTIONS = set(("nickservpass", "API_KEY"))
+PRIVATE_OPTIONS = {"nickservpass", "API_KEY"}
 
 def servchanParse(servchan):
 	# parse servchan
@@ -39,8 +39,6 @@ def config(event, bot):
 	servername (default for server) or :#channel (channel globally) or #channel (channel on this server) or "-" (default)
 	or "this" (current channel (unless PM) current server.) module = "-" for non-module options. value should be JSON
 	"""
-	command = ""
-	
 	if event.argument == "save":
 		blockingCallFromThread(reactor, Settings.saveOptions)
 		bot.say("Done (save is automatically done when setting config values.)")

@@ -11,11 +11,11 @@ def admin_dbquery(event, bot):
 
 	if not result:
 		return bot.say("No error, but nothing to display.")
-	print "GOOD"
+	print("GOOD")
 	#good
 	for row in result:
 		nrow = []
-		for key in row.keys():
+		for key in list(row.keys()):
 			nrow.append((key, row[key]))
 		bot.say(repr(nrow))
 

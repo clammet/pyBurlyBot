@@ -26,9 +26,9 @@ class Mapping:
 		if not types: self.types = []
 		else: self.types = types
 
-		assert(command is None or any(isinstance(command, t) for t in (list, tuple, basestring, unicode)))
+		assert(command is None or isinstance(command, (list, tuple, str)))
 		if command:
-			if isinstance(command, basestring) or isinstance(command, unicode):
+			if isinstance(command, str):
 				command = [command]
 			if not self.types:
 				self.types = ["privmsged"]

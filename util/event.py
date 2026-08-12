@@ -1,5 +1,5 @@
 from twisted.words.protocols.irc import CHANNEL_PREFIXES
-from helpers import coerceToUnicode
+from .helpers import coerceToUnicode
 
 from time import time
 from datetime import datetime

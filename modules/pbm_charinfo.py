@@ -4,12 +4,12 @@
 from unicodedata import name
 from re import compile as compile_re, IGNORECASE
 
-from util import Mapping, argumentSplit, functionHelp
+from util import Mapping, functionHelp
 
 # build mini database of character names:
 CHARACTER_DESC = []
-for c in xrange(200000): # I think there is like 110000 unicode characters?? I don't know what ordinals they are though
-	try: CHARACTER_DESC.append((c, name(unichr(c))))
+for c in range(200000): # I think there is like 110000 unicode characters?? I don't know what ordinals they are though
+	try: CHARACTER_DESC.append((c, name(chr(c))))
 	except ValueError: pass
 # U+0430 DESC (CHR)
 RPLFORMAT = "U+%04X %s (%s)"
@@ -29,7 +29,7 @@ def funicode(event, bot):
 		return bot.say(functionHelp(funicode))
 	if REGHEX.match(arg):
 		i = int(arg, 16)
-		u = unichr(i)
+		u = chr(i)
 		return bot.say(RPLFORMAT % (i, _getname(u), u))
 	elif len(arg) <= 3:
 		output = []
@@ -41,7 +41,7 @@ def funicode(event, bot):
 		for i, entry in CHARACTER_DESC:
 			if len(output) > 8: break # could be lowered to improve performance
 			if arg.lower() in entry.lower():
-				output.append(RPLFORMAT % (i, entry, unichr(i)))
+				output.append(RPLFORMAT % (i, entry, chr(i)))
 		if output:
 			return bot.say(", ".join(output))
 		else:

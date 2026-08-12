@@ -78,11 +78,6 @@ def nickChanged(event, bot):
 			identify(bot, snick)
 
 def init(bot):
-	# we could dynamically add the nickChanged mapping event here to mappings depending on setting
-	# sort of like what simplecommands does
-	# TODO: When state can track usermode (+r in particular), this should be used to know whether to reident or not on nick reclaim
-	#~ if not bot.getOption("enablestate"):
-		#~ raise ConfigException('nicktools module requires "enablestate" option')
 	return True
 	
 def unload():

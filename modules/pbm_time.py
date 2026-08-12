@@ -24,7 +24,6 @@ def _processTime(bot, loc, group=False):
 def ttime(event, bot):
 	# attempt group first (because it's easier with current location module weirdness 
 	# (getLocationWithError needs rewrite with friendlier API)
-	group = False
 	if bot.isModuleAvailable("pbm_alias"):
 		g = USERS_MODULE.ALIAS_MODULE.get_groupname(bot.dbQuery, event.argument)
 		if g:

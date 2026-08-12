@@ -1,5 +1,7 @@
 #compiled stuff
 *.py[co]
+__pycache__/
+.venv/
 
 #datafolder and settings
 data/
@@ -46,6 +48,7 @@ pip-log.txt
 # Unit test / coverage reports
 .coverage
 .tox
+_trial_temp/
 
 #Translations
 *.mo

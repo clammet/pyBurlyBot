@@ -1,10 +1,10 @@
 
-from util import Mapping, commandSplit, functionHelp
-import urllib
+from util import Mapping
+import urllib.request, urllib.parse, urllib.error
 import random
 
 OPTIONS = {
-	"URL" : (unicode, "URL of processed timecube data for IRC display", u'')
+	"URL" : (str, "URL of processed timecube data for IRC display", '')
 }
 IRC_COLORS = (
 	(255, 255, 255),
@@ -49,7 +49,8 @@ def timecube(event, bot):
 	if event.isPM():
 		return bot.say('GENE RAY CREATED TIME CUBE FOR ALL, NOT JUST YOU')
 
-	tclist = urllib.urlopen(tc_url).readlines()
+	with urllib.request.urlopen(tc_url) as response:
+		tclist = [line.decode("utf-8", "replace") for line in response.readlines()]
 	line, color = None, None
 	if not event.argument:
 		color, line = random.choice(tclist).split('\t', 1)

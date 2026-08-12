@@ -15,7 +15,7 @@ def repeater(event, bot):
 		bot.say("%s : %s" % (event.nick, event.msg))
 
 def printer(event, bot):
-	print repr(event.msg)
+	print(repr(event.msg))
 
 def samplecommand(event, bot):
 	""" samplecommand [option] [argument]. samplecommand will do things depending on what option is used. 
