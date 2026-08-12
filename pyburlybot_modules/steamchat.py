@@ -1,4 +1,6 @@
-"""Relay IRC channels through direct messages to a dedicated Steam account.
+"""DEPRECATED/abandoned/experimental - Don't use this.
+
+Relay IRC channels through direct messages to a dedicated Steam account.
 
 For a first login protected by Steam Guard, start the bot with a current code in
 ``PYBURLYBOT_STEAM_AUTH_CODE``. Steam's reusable login key and machine sentry

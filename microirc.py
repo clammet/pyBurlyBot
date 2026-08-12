@@ -2,9 +2,8 @@
 """Small IRC smoke-test client for pyBurlyBot commands.
 
 The client reads the normal BurlyBot JSON configuration, joins the configured
-channels, asks the running bot for its public command list, then sends each
-primary command as a PRIVMSG.  It deliberately does not load the bot runtime,
-databases, or modules.
+channels, then sends the module-aware cases in :data:`TEST_COMMANDS` one at a
+time.  It deliberately does not load the bot runtime, databases, or modules.
 """
 
 import argparse
@@ -65,6 +64,86 @@ class IRCMessage:
         if not self.prefix:
             return None
         return self.prefix.split("!", 1)[0]
+
+
+@dataclass(frozen=True)
+class TestCommand:
+    """One deliberately selected public command invocation.
+
+    ``multiline`` means the command can call ``bot.say`` more than once.  IRC
+    has no reply correlation or end marker, so those cases are complete after
+    the bot has been quiet for the configured multiline idle period.
+    """
+
+    module: str
+    command: str
+    arguments: str = ""
+    multiline: bool = False
+
+    def body(self, nickname: str) -> str:
+        arguments = self.arguments.replace("{nick}", nickname)
+        return " ".join(part for part in (self.command, arguments) if part)
+
+
+# Keep this explicit.  Besides making argument handling testable, it gives us
+# one obvious place to add awkward inputs and annotate commands whose callbacks
+# may produce several PRIVMSG lines (help loops over mappings, state/time/seen
+# can loop over records, and timers emits a heading followed by timer rows).
+TEST_COMMANDS: tuple[TestCommand, ...] = (
+    TestCommand("help", "commands"),
+    TestCommand("help", "help", "calc", multiline=True),
+    TestCommand("alert", "alert", "microirc-nobody at invalid-date harness test"),
+    TestCommand("alias", "alias", "microirc-unknown"),
+    TestCommand("alias", "group", "microirc-unknown"),
+    TestCommand("alias", "subscripe", "microirc-unknown"),
+    TestCommand("alias", "unsubscripe", "microirc-unknown"),
+    TestCommand("butt", "butt", "argument handling should survive punctuation!"),
+    TestCommand("butt", "butts", "~del -1"),
+    TestCommand("calc", "calc", "1 + 1"),
+    TestCommand("charinfo", "u", "2603"),
+    TestCommand("codings", "hash", "sha256 microIRC"),
+    TestCommand("codings", "md5", "microIRC"),
+    TestCommand("codings", "rot13", "microIRC"),
+    TestCommand("codings", "crc", "microIRC"),
+    TestCommand("codings", "unquote", "microIRC%20test"),
+    TestCommand("codings", "quote", "microIRC test"),
+    TestCommand("codings", "encode", "utf-8 microIRC"),
+    TestCommand("codings", "decode", "utf-8 microIRC"),
+    TestCommand("gdq", "gdq", "~list"),
+    TestCommand("gdqdonate", "gdqdonate"),
+    TestCommand("google", "google", "pyBurlyBot"),
+    TestCommand("google", "gis", "pyBurlyBot"),
+    TestCommand("location", "location", "{nick}"),
+    TestCommand("logindexsearch", "log", "1 microirc"),
+    TestCommand("logindexsearch", "logstats", "microirc"),
+    TestCommand("random", "rand", "10"),
+    TestCommand("random", "choice", "alpha beta gamma"),
+    TestCommand("random", "coinflip"),
+    TestCommand("samplemodule", "samplecommand", "something argument handling"),
+    TestCommand("samplemodule", "print", "argument handling"),
+    TestCommand("sendwaiteventexample", "waitexample"),
+    TestCommand("sendwaiteventexample", "waitlist"),
+    TestCommand("simplecommands", "simplecommands", "microirc-unknown"),
+    TestCommand("stateexample", "state", "channel", multiline=True),
+    TestCommand("steamchat", "steamchat", "status"),
+    TestCommand("tell", "tell", "{nick} harness test"),
+    TestCommand("tell", "remind", "microirc-nobody at invalid-date harness test"),
+    TestCommand("time", "time", "{nick}", multiline=True),
+    TestCommand("timecube", "timecube", "microirc"),
+    TestCommand("timerexample", "timers", "show", multiline=True),
+    TestCommand("urbandictionary", "urbandictionary", "pyBurlyBot"),
+    TestCommand("urlinfo", "head", "https://example.com/"),
+    TestCommand("urlinfo", "title", "https://example.com/"),
+    TestCommand("urlinfo", "lasturl"),
+    TestCommand("users", "seen", "{nick}", multiline=True),
+    TestCommand("weather", "weather", "{nick}"),
+    TestCommand("weather", "forecast", "{nick}"),
+    TestCommand("wikipedia", "wiki", "pyBurlyBot"),
+    TestCommand("words", "dict", "test"),
+    TestCommand("words", "spell", "mispeling"),
+    TestCommand("words", "syn", "test"),
+    TestCommand("youtube", "youtube", "pyBurlyBot"),
+)
 
 
 def _server_value(
@@ -287,7 +366,7 @@ def _literal_keyword(call: ast.Call, name: str, default: Any = None) -> Any:
         if keyword.arg == name:
             try:
                 return ast.literal_eval(keyword.value)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return default
     return default
 
@@ -295,7 +374,7 @@ def _literal_keyword(call: ast.Call, name: str, default: Any = None) -> Any:
 def discover_static_commands(
     modules: Iterable[str], module_dir: Path
 ) -> tuple[str, ...]:
-    """Best-effort fallback when the running bot cannot answer !commands."""
+    """Inspect module source for public primary mappings without importing it."""
     commands: set[str] = set()
     for module_name in modules:
         module_path = module_dir / (module_name + ".py")
@@ -303,7 +382,7 @@ def discover_static_commands(
             tree = ast.parse(
                 module_path.read_text(encoding="utf-8"), filename=str(module_path)
             )
-        except (OSError, SyntaxError):
+        except OSError, SyntaxError:
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -327,6 +406,31 @@ def discover_static_commands(
             ):
                 commands.add(command[0])
     return tuple(sorted(commands, key=str.lower))
+
+
+def select_test_commands(modules: Iterable[str]) -> tuple[TestCommand, ...]:
+    """Return the hand-authored command cases belonging to enabled modules."""
+    enabled = {module.lower() for module in modules}
+    return tuple(case for case in TEST_COMMANDS if case.module.lower() in enabled)
+
+
+def command_from_body(body: str, prefix: str) -> TestCommand:
+    """Build a command-line override, inheriting known multiline metadata."""
+    stripped = body.strip()
+    stripped = stripped[len(prefix) :] if stripped.startswith(prefix) else stripped
+    command, _, arguments = stripped.partition(" ")
+    if not command:
+        raise MicroIRCError("A command override must not be empty")
+    known = next(
+        (case for case in TEST_COMMANDS if case.command.lower() == command.lower()),
+        None,
+    )
+    return TestCommand(
+        module=known.module if known else "<command-line>",
+        command=command,
+        arguments=arguments,
+        multiline=known.multiline if known else False,
+    )
 
 
 def build_privmsg(target: str, message: str) -> str:
@@ -477,24 +581,6 @@ class IRCSession:
                 raise MicroIRCError(f"IRC server error: {message.raw}")
             return message
 
-    def discover_commands(self, channel: ChannelConfig) -> tuple[str, ...]:
-        self.send_privmsg(channel.name, self.settings.command_prefix + "commands")
-        deadline = monotonic() + self.timeout
-        while True:
-            try:
-                message = self.receive(max(0.0, deadline - monotonic()))
-            except TimeoutError:
-                return ()
-            if message.command != "PRIVMSG" or len(message.params) < 2:
-                continue
-            if message.params[0].lower() != channel.name.lower():
-                continue
-            if not self._is_bot_nick(message.nick):
-                continue
-            commands = advertised_commands(message.params[-1])
-            if commands:
-                return commands
-
     def _is_bot_nick(self, nickname: str | None) -> bool:
         if nickname is None:
             return False
@@ -510,13 +596,23 @@ class IRCSession:
                     return True
         return False
 
-    def drain(self, seconds: float, channel: ChannelConfig) -> None:
-        deadline = monotonic() + seconds
-        while monotonic() < deadline:
+    def wait_for_result(
+        self,
+        command: TestCommand,
+        channel: ChannelConfig,
+        timeout: float,
+        multiline_idle: float,
+    ) -> int:
+        """Wait for this command's reply, or for its deadline to expire."""
+        deadline = monotonic() + timeout
+        idle_deadline: float | None = None
+        replies = 0
+        while True:
+            wait_until = min(deadline, idle_deadline or deadline)
             try:
-                message = self.receive(deadline - monotonic())
+                message = self.receive(max(0.0, wait_until - monotonic()))
             except TimeoutError:
-                return
+                return replies
             if (
                 message.command == "KICK"
                 and len(message.params) > 1
@@ -524,8 +620,14 @@ class IRCSession:
             ):
                 raise MicroIRCError(f"Test client was kicked: {message.raw}")
             if message.command in {"PRIVMSG", "NOTICE"} and len(message.params) >= 2:
-                if self._is_bot_nick(message.nick):
+                target = message.params[0].lower()
+                expected_targets = {channel.name.lower(), self.nickname.lower()}
+                if self._is_bot_nick(message.nick) and target in expected_targets:
                     print(f"      <{message.nick}> {message.params[-1]}")
+                    replies += 1
+                    if not command.multiline:
+                        return replies
+                    idle_deadline = monotonic() + multiline_idle
             elif message.command.isdigit() and int(message.command) >= 400:
                 print(f"      [server] {message.raw}")
 
@@ -551,10 +653,9 @@ def run_target(
     settings: ServerConfig,
     nickname: str,
     commands: Sequence[str],
-    delay: float,
     timeout: float,
-    response_wait: float,
-    module_dir: Path,
+    reply_timeout: float,
+    multiline_idle: float,
     verbose: bool,
 ) -> int:
     tls_label = " TLS" if settings.tls else ""
@@ -568,56 +669,35 @@ def run_target(
         for channel in settings.channels:
             print(f"  Joining {channel.name}")
             session.join(channel)
-            selected_commands = tuple(commands)
-            commands_already_sent = False
-            if not selected_commands:
-                print(
-                    f"    Discovering commands with {settings.command_prefix}commands"
+            if commands:
+                selected_commands = tuple(
+                    command_from_body(body, settings.command_prefix)
+                    for body in commands
                 )
-                selected_commands = session.discover_commands(channel)
-                if not selected_commands:
-                    selected_commands = discover_static_commands(
-                        settings.modules, module_dir
-                    )
-                    if selected_commands:
-                        print(
-                            f"    Bot did not answer; using {len(selected_commands)} "
-                            "statically discovered commands"
-                        )
-                    else:
-                        raise MicroIRCError(
-                            f"Bot did not answer {settings.command_prefix}commands and no commands could be discovered"
-                        )
-                commands_already_sent = any(
-                    command.lower() == "commands" for command in selected_commands
-                )
-                if commands_already_sent:
-                    selected_commands = tuple(
-                        command
-                        for command in selected_commands
-                        if command.lower() != "commands"
-                    )
-            else:
                 print(
                     f"    Using {len(selected_commands)} command(s) supplied on the command line"
                 )
-
-            total_commands = len(selected_commands) + int(commands_already_sent)
-            if commands_already_sent:
-                print(
-                    f"    Exercising {total_commands} commands "
-                    f"({settings.command_prefix}commands completed discovery)"
-                )
             else:
-                print(f"    Exercising {total_commands} commands")
-            first_index = 2 if commands_already_sent else 1
-            for index, command in enumerate(selected_commands, first_index):
-                message = _command_message(settings.command_prefix, command)
+                selected_commands = select_test_commands(settings.modules)
+                if not selected_commands:
+                    raise MicroIRCError(
+                        "No static test commands belong to the configured modules"
+                    )
+                print(f"    Using {len(selected_commands)} static command case(s)")
+
+            total_commands = len(selected_commands)
+            print(f"    Exercising {total_commands} commands")
+            for index, command in enumerate(selected_commands, 1):
+                message = _command_message(
+                    settings.command_prefix, command.body(session.nickname)
+                )
                 print(f"      [{index}/{total_commands}] {message}")
                 session.send_privmsg(channel.name, message)
-                session.drain(delay, channel)
-            if response_wait:
-                session.drain(response_wait, channel)
+                replies = session.wait_for_result(
+                    command, channel, reply_timeout, multiline_idle
+                )
+                if not replies:
+                    print(f"      [timeout after {reply_timeout:g}s: no bot reply]")
     finally:
         session.close()
     return 0
@@ -644,30 +724,34 @@ def build_argument_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="COMMAND",
-        help="test this command/body instead of discovery; may be repeated",
+        help="test this command/body instead of the static cases; may be repeated",
     )
     parser.add_argument(
+        "--multiline-idle",
         "--delay",
+        dest="multiline_idle",
         type=float,
-        default=1.0,
-        help="seconds to receive/pause after each command",
+        default=1.5,
+        help="quiet seconds marking the end of a multiline reply",
     )
     parser.add_argument(
+        "--reply-timeout",
         "--response-wait",
+        dest="reply_timeout",
         type=float,
-        default=2.0,
-        help="extra response wait after each channel",
+        default=20.0,
+        help="maximum seconds to wait for each command's reply",
     )
     parser.add_argument(
         "--timeout",
         type=float,
         default=15.0,
-        help="connection, join, and discovery timeout",
+        help="connection, registration, and join timeout",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="show targets and statically discoverable commands only",
+        help="show targets and selected static command cases only",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="show raw IRC traffic"
@@ -678,26 +762,28 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_argument_parser()
     args = parser.parse_args(argv)
-    if args.delay < 0 or args.response_wait < 0 or args.timeout <= 0:
-        parser.error(
-            "delay/response-wait must be non-negative and timeout must be positive"
-        )
+    if args.multiline_idle <= 0 or args.reply_timeout <= 0 or args.timeout <= 0:
+        parser.error("multiline-idle, reply-timeout, and timeout must be positive")
 
     try:
         config_path = Path(args.config)
         targets = load_server_configs(config_path, args.server, args.channel)
-        module_dir = Path(__file__).resolve().parent / "pyburlybot_modules"
         if args.dry_run:
             for target in targets:
                 channels = ", ".join(channel.name for channel in target.channels)
-                commands = tuple(args.command) or discover_static_commands(
-                    target.modules, module_dir
+                nickname = args.nick or (target.bot_nick + "Test")
+                commands = (
+                    tuple(
+                        command_from_body(body, target.command_prefix)
+                        for body in args.command
+                    )
+                    if args.command
+                    else select_test_commands(target.modules)
                 )
                 print(f"{target.label} {target.host}:{target.port} -> {channels}")
-                print(
-                    "  commands: %s"
-                    % (" ".join(commands) or "none statically discoverable")
-                )
+                for command in commands:
+                    suffix = " [multiline]" if command.multiline else ""
+                    print(f"  {command.body(nickname)}{suffix}")
             return 0
 
         for target in targets:
@@ -706,10 +792,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 target,
                 nickname,
                 args.command,
-                args.delay,
                 args.timeout,
-                args.response_wait,
-                module_dir,
+                args.reply_timeout,
+                args.multiline_idle,
                 args.verbose,
             )
         return 0

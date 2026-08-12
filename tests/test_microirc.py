@@ -2,18 +2,27 @@ import json
 import socket
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Thread
+from typing import IO, cast
 from unittest import TestCase
 
 from microirc import (
+    ChannelConfig,
+    IRCMessage,
     IRCSession,
     MicroIRCError,
     ServerConfig,
+    TEST_COMMANDS,
+    TestCommand,
     advertised_commands,
     build_privmsg,
+    command_from_body,
     discover_static_commands,
     load_server_configs,
     parse_irc_line,
+    select_test_commands,
 )
+from microirc_server import IRCRelayServer
 
 
 class MicroIRCTest(TestCase):
@@ -116,3 +125,138 @@ class MicroIRCTest(TestCase):
             commands = discover_static_commands(("demo",), module_dir)
 
         self.assertEqual(commands, ("primary",))
+
+    def test_static_cases_cover_public_mappings_and_supply_arguments(self) -> None:
+        module_dir = Path(__file__).parent.parent / "pyburlybot_modules"
+        modules = tuple(path.stem for path in module_dir.glob("*.py"))
+
+        discovered = set(discover_static_commands(modules, module_dir))
+        configured = {command.command for command in TEST_COMMANDS}
+        selected = select_test_commands(("calc", "timerexample"))
+
+        self.assertEqual(configured, discovered)
+        self.assertEqual(
+            [command.body("TestNick") for command in selected],
+            ["calc 1 + 1", "timers show"],
+        )
+        self.assertFalse(selected[0].multiline)
+        self.assertTrue(selected[1].multiline)
+        self.assertEqual(
+            command_from_body("!timers show", "!"),
+            TestCommand("timerexample", "timers", "show", multiline=True),
+        )
+
+    def test_result_wait_consumes_one_or_all_multiline_replies(self) -> None:
+        settings = ServerConfig(
+            label="test",
+            host="localhost",
+            port=6667,
+            tls=False,
+            verify=False,
+            cert=None,
+            encoding="utf-8",
+            bot_nick="BurlyBot",
+            alt_bot_nicks=(),
+            nick_suffix="_",
+            command_prefix="!",
+            modules=(),
+            channels=(),
+        )
+        client_socket, server_socket = socket.socketpair()
+        session = IRCSession(settings, "BurlyBotTest", timeout=1)
+        session.socket = client_socket
+        try:
+            server_socket.sendall(
+                b":BurlyBot!bot@example PRIVMSG #test :first\r\n"
+                b":BurlyBot!bot@example PRIVMSG #test :second\r\n"
+            )
+
+            replies = session.wait_for_result(
+                TestCommand("demo", "single"),
+                channel=self._channel("#test"),
+                timeout=0.2,
+                multiline_idle=0.01,
+            )
+
+            self.assertEqual(replies, 1)
+            self.assertEqual(session.receive(0.2).params[-1], "second")
+
+            server_socket.sendall(
+                b":BurlyBot!bot@example PRIVMSG #test :line one\r\n"
+                b":BurlyBot!bot@example PRIVMSG #test :line two\r\n"
+            )
+            replies = session.wait_for_result(
+                TestCommand("demo", "multi", multiline=True),
+                channel=self._channel("#test"),
+                timeout=0.2,
+                multiline_idle=0.01,
+            )
+
+            self.assertEqual(replies, 2)
+        finally:
+            session.close()
+            server_socket.close()
+
+    def test_micro_server_relays_channel_messages_between_two_clients(self) -> None:
+        server = IRCRelayServer(("127.0.0.1", 0))
+        server_thread = Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        bot_socket: socket.socket | None = None
+        test_socket: socket.socket | None = None
+        try:
+            raw_address = server.server_address
+            assert isinstance(raw_address[0], str) and len(raw_address) == 2
+            address = (raw_address[0], raw_address[1])
+            bot_socket, bot_file = self._register_client(address, "BurlyBot")
+            test_socket, test_file = self._register_client(address, "BurlyBotTest")
+            self._join(bot_file, "BurlyBot", "#test")
+            self._join(test_file, "BurlyBotTest", "#test")
+
+            test_file.write(b"PRIVMSG #test :!calc 1 + 1\r\n")
+            request = self._read_until(bot_file, "PRIVMSG")
+
+            self.assertEqual(request.nick, "BurlyBotTest")
+            self.assertEqual(request.params, ("#test", "!calc 1 + 1"))
+
+            bot_file.write(b"PRIVMSG #test :2\r\n")
+            response = self._read_until(test_file, "PRIVMSG")
+
+            self.assertEqual(response.nick, "BurlyBot")
+            self.assertEqual(response.params, ("#test", "2"))
+        finally:
+            for connection in (bot_socket, test_socket):
+                if connection is not None:
+                    connection.close()
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=1)
+
+    @staticmethod
+    def _channel(name: str) -> ChannelConfig:
+        return ChannelConfig(name)
+
+    def _register_client(
+        self, address: tuple[str, int], nickname: str
+    ) -> tuple[socket.socket, IO[bytes]]:
+        connection = socket.create_connection(address, timeout=1)
+        connection.settimeout(1)
+        stream = cast(IO[bytes], connection.makefile("rwb", buffering=0))
+        stream.write(f"NICK {nickname}\r\nUSER test 0 * :Test User\r\n".encode())
+        self._read_until(stream, "376")
+        return connection, stream
+
+    def _join(self, stream: IO[bytes], nickname: str, channel: str) -> None:
+        stream.write(f"JOIN {channel}\r\n".encode())
+        message = self._read_until(stream, "JOIN")
+        self.assertEqual(message.nick, nickname)
+        self._read_until(stream, "366")
+
+    @staticmethod
+    def _read_until(stream: IO[bytes], command: str) -> IRCMessage:
+        while True:
+            encoded = stream.readline()
+            if not encoded:
+                raise AssertionError("IRC server closed the test connection")
+            message = parse_irc_line(encoded.decode())
+            if message.command == command:
+                return message
