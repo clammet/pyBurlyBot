@@ -31,3 +31,22 @@ Use `--verbose` to show raw IRC traffic. The client prints bot replies while it
 runs and exits non-zero when configuration, connection, registration, joining,
 or sending fails. If command-list discovery times out, it falls back to primary
 non-admin command mappings found in the configured module source files.
+
+Steam chat relay
+----------------
+
+The `steamchat` module relays IRC channels through direct messages to a
+dedicated Steam account. Configure its `username` and `password` module options;
+after the first successful login it persists a reusable `loginKey` and machine
+sentry data under the configured data directory.
+
+If Steam Guard is required on the first login, restart once with a current code:
+
+```
+PYBURLYBOT_STEAM_AUTH_CODE=XXXXX python pyBurlyBot.py BurlyBot.json
+```
+
+The code is read only from the process environment and is not written to the
+configuration. Use `steamchat status` on IRC to inspect connection or login
+state. Steam users start a relay with the normal bot command prefix, for example
+`!listen #channel`; `!help` describes the remaining relay commands.
