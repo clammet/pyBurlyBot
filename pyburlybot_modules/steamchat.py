@@ -196,7 +196,7 @@ class SteamChat(Thread):
 		self.cmdprefix = cmdprefix
 		self.online = False
 		self.cooldownuntil = 0
-		self.oauth = self.container._getOption("oauthtoken", module="steamchat")
+		self.oauth = self.container.getOption("oauthtoken", module="steamchat", inreactor=True)
 		# users their friendly name, last offline time and their channels
 		# offline time for allowing users to disconnect/reconnect and still keep listened channels
 		self.users = {} # {userid : SteamUser}
@@ -221,16 +221,15 @@ class SteamChat(Thread):
 	
 	def populateCommandMap(self):
 		# command map. SOMETHING LIKE THIS SHOULD NEVER BE DONE. GOSH.
-		self.cmdMap = self.container._settings.dispatcher.eventmap.get("privmsged", {}).get("command", {}).copy()
-		for cmd, mappings in list(self.cmdMap.items()):
-			for mapping in mappings:
-				try:
-					module_name = mapping.function.__module__.rpartition(".")[2]
-					remove = module_name not in self.allowedmodules
-				except AttributeError:
-					self.cmdMap.pop(cmd)
-				else:
-					if remove: self.cmdMap.pop(cmd)
+		command_map = self.container._settings.dispatcher.eventmap.get("privmsged", {}).get("command", {})
+		self.cmdMap = {}
+		for cmd, mappings in command_map.items():
+			allowed = [
+				mapping for mapping in mappings
+				if getattr(mapping.function, "__module__", "").rpartition(".")[2] in self.allowedmodules
+			]
+			if allowed:
+				self.cmdMap[cmd] = allowed
 	
 	def run(self):
 		self.login()

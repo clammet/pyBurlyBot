@@ -15,6 +15,11 @@ from twisted.internet import reactor
 #BurlyBot imports
 from util.settings import Settings, ConfigException
 
+
+def start_logging(output):
+	"""Start Twisted logging without replacing multiprocessing-safe stdio."""
+	return log.startLogging(output, setStdout=False)
+
 def setup_sighup_handler():
 	"""
 	Handle SIGHUP, received by screen children when screen receives SIGTERM
@@ -30,7 +35,7 @@ if __name__ == '__main__':
 	Settings.botdir = getcwd()
 
 	# temporary logging
-	templog = log.startLogging(stdout)
+	templog = start_logging(stdout)
 	print("Starting pyBurlyBot, press CTRL+C to quit.")
 
 	parser = ArgumentParser(description="Internet bort pyBurlyBot",

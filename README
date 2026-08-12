@@ -1,1 +1,33 @@
 This is internet IRC bot pyBurlyBot
+
+Command smoke-test client
+-------------------------
+
+`microirc.py` is a deliberately small IRC client that reuses the bot's JSON
+server, TLS, encoding, command-prefix, nickname, and channel settings. It joins
+each configured channel, sends the bot's `commands` command, and then sends each
+advertised public primary command once as a `PRIVMSG`. Commands are sent without
+arguments so commands that require them can demonstrate their usage/error path.
+Admin-only and hidden commands are not advertised by the bot and are therefore
+not exercised automatically.
+
+Run it while the bot is connected:
+
+```
+python microirc.py BurlyBot.json
+```
+
+By default every configured server and channel is tested. A run can be narrowed,
+paced differently, or supplied explicit command bodies (useful when the help
+module is disabled):
+
+```
+python microirc.py BurlyBot.json --server libera --channel '#burlybot-test'
+python microirc.py BurlyBot.json --delay 2 --command 'calc 1+1' --command help
+python microirc.py BurlyBot.json --dry-run
+```
+
+Use `--verbose` to show raw IRC traffic. The client prints bot replies while it
+runs and exits non-zero when configuration, connection, registration, joining,
+or sending fails. If command-list discovery times out, it falls back to primary
+non-admin command mappings found in the configured module source files.
