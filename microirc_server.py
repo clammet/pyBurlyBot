@@ -57,6 +57,20 @@ class IRCRelayServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
             self.clients.add(state)
         return state
 
+    def client_joined(self, nickname: str, channel: str) -> bool:
+        """Report whether a registered client has joined a channel."""
+        nickname_key = nickname.casefold()
+        channel_key = channel.casefold()
+        with self.state_lock:
+            return any(
+                client.registered
+                and not client.closed
+                and client.nickname is not None
+                and client.nickname.casefold() == nickname_key
+                and channel_key in client.channels
+                for client in self.clients
+            )
+
     def disconnect(self, state: ClientState, reason: str) -> None:
         with self.state_lock:
             if state.closed:

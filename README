@@ -37,6 +37,33 @@ runs and exits non-zero when configuration, connection, registration, joining,
 or sending fails. Edit `TEST_COMMANDS` to add pathological payloads or change
 the reply metadata for a command.
 
+End-to-end local harness
+------------------------
+
+`microirc_harness.py` wires the complete test together: it starts the local IRC
+server, launches `pyBurlyBot.py`, waits until the bot has joined, runs
+`microirc.py`, then shuts down the bot and server. Both child processes use the
+same Python interpreter/environment that launched the harness.
+
+```
+python microirc_harness.py --port 0
+python microirc_harness.py --port 0 --command 'md5 microIRC' --verbose
+```
+
+`microirc_harness.conf` is the committed, secret-free configuration template.
+It points at the loopback microIRC server and enables the production commands
+and their helper modules. The harness excludes explicit example/debug modules,
+the deprecated Steam and Weather Underground integrations, the Rizon-specific
+nick recovery module, the redundant remote paste provider, and the source-tree
+updater.
+
+At runtime, database, search-index, paste, and generated-config files live in a
+private temporary directory. If root `BurlyBot.json` exists, only the `API_KEY`
+and `CSE_ID` slots declared by the harness template are copied into that runtime
+config; passwords and tokens are never copied. The generated config has mode
+`0600` and is deleted after the run. Use `--no-secrets` to disable the overlay
+or `--secrets-config` to select another source.
+
 Local micro IRC server
 ----------------------
 
