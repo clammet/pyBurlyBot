@@ -8,6 +8,7 @@ from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.python import log
 from twisted.protocols.basic import LineReceiver
 from twisted.protocols.policies import TimeoutMixin
+from OpenSSL import SSL
 
 # system imports
 from time import time
@@ -16,6 +17,14 @@ from math import floor
 
 #BurlyBot imports
 from .helpers import processHostmask, processListReply, PrefixMap, isIterable, splitEncodedUnicode
+
+def _tlsConnectionErrorHint(settings, reason):
+	if not getattr(settings, "ssl", False) or not reason.check(SSL.Error):
+		return None
+	return (
+		"[TLS connection hint: check that the configured port accepts direct TLS; "
+		f"attempted {settings.host}:{settings.port}.]"
+	)
 
 # inject some other common symbolic IDs:
 symbolic_to_numeric["RPL_YOURID"] = '042'
@@ -724,6 +733,9 @@ class BurlyBot(IRCClient, TimeoutMixin):
 		if self.state: self.state._resetnetwork()
 		# TODO: reason needs to be properly formatted/actual reason being extracted from the "Failure" or whatever
 		print("[disconnected: %s]" % reason)
+		tls_hint = _tlsConnectionErrorHint(self.settings, reason)
+		if tls_hint:
+			print(tls_hint)
 
 class BurlyBotFactory(ReconnectingClientFactory):
 	"""

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Module loader simplifications — implemented</title>
+  <style>
+    body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; font: 16px/1.5 system-ui, sans-serif; color: #222; }
+    h1, h2 { line-height: 1.2; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: .7rem; border: 1px solid #ccc; text-align: left; vertical-align: top; }
+    th { background: #f3f3f3; }
+    code { background: #f3f3f3; padding: .1rem .25rem; }
+    .done { color: #285b2a; font-weight: 700; }
+    .note { padding: .8rem 1rem; border-left: 4px solid #285b2a; background: #f1f8f1; }
+  </style>
+</head>
+<body>
+  <h1>Module loader simplifications</h1>
+  <p class="note"><span class="done">Implemented.</span> Plugins now use a package namespace, bare names, explicit shared state, and per-server activation.</p>
+
+  <h2>Changes</h2>
+  <table>
+    <thead>
+      <tr><th>Status</th><th>Change</th><th>Result</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="done">Done</td>
+        <td>Package-based imports</td>
+        <td>
+          <code>pyburlybot_modules/</code> is a real package. Plugins load as
+          <code>pyburlybot_modules.&lt;name&gt;</code>
+          through normal <code>importlib.import_module()</code> calls. The entry point no longer
+          adds the plugin directory to <code>sys.path</code>.
+        </td>
+      </tr>
+      <tr>
+        <td class="done">Done</td>
+        <td>Removed the <code>pbm_</code> convention</td>
+        <td>
+          Filenames, configuration names, dependencies, option namespaces, and module lookup
+          calls now use bare names such as <code>random</code> and <code>users</code>. Package
+          qualification prevents collisions with top-level Python modules.
+        </td>
+      </tr>
+      <tr>
+        <td class="done">Done</td>
+        <td>One explicit registry</td>
+        <td>
+          <a href="../util/moduleloader.py">ModuleRegistry</a> owns imports, import failures,
+          per-server active modules, activation failures, unloads, and cache cleanup.
+        </td>
+      </tr>
+      <tr>
+        <td class="done">Done</td>
+        <td>Per-server activation</td>
+        <td>
+          Imported Python modules remain shared, while availability is tracked separately for
+          each server. A plugin loaded by one server can no longer appear available to another.
+        </td>
+      </tr>
+      <tr>
+        <td class="done">Done</td>
+        <td>Simple loading pipeline</td>
+        <td>
+          <a href="../util/dispatcher.py">Dispatcher</a> now performs named stages: import,
+          requirements, options, initialization, add-ons, and activation. Each stage has one
+          error boundary.
+        </td>
+      </tr>
+      <tr>
+        <td class="done">Done</td>
+        <td>Consistent requirement handling</td>
+        <td>
+          Requirements normalize to a tuple and checking always returns the same
+          <code>(not_allowed, failed)</code> shape. Disallowed requirements are reported without
+          being imported, and circular errors include the dependency path.
+        </td>
+      </tr>
+      <tr>
+        <td class="done">Done</td>
+        <td>Metadata defaults</td>
+        <td>
+          Missing <code>REQUIRES</code>, <code>OPTIONS</code>, <code>PROVIDES</code>, and
+          <code>mappings</code> values use empty defaults instead of repeated presence checks.
+        </td>
+      </tr>
+      <tr>
+        <td class="done">Done</td>
+        <td>Central reload lifecycle</td>
+        <td>
+          The registry unloads active plugins once, removes package children from
+          <code>sys.modules</code>, invalidates import caches, reloads all servers, and reports
+          failures. Direct stale-module cleanup was removed from settings.
+        </td>
+      </tr>
+      <tr>
+        <td class="done">Done</td>
+        <td>One mapping sort pass</td>
+        <td>All event and command buckets are built first, then each bucket is sorted once.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Verification</h2>
+  <ul>
+    <li>Bundled <code>random</code>, <code>time</code>, and <code>wikipedia</code> plugins import without replacing their top-level dependencies.</li>
+    <li>The multiprocessing class from <code>pyburlybot_modules.logindexsearch</code> serializes with its package-qualified import name.</li>
+    <li>Tests cover denied dependencies, string requirements, circular dependencies, pipeline stages, per-server isolation, source reloads, and mapping order.</li>
+  </ul>
+
+  <p><small>This intentionally changes configuration compatibility: existing <code>pbm_</code> names should be replaced with bare plugin names.</small></p>
+</body>
+</html>

@@ -16,8 +16,8 @@ cert/
 .bashrc
 
 #testing
-modules/pbm_test.py
-modules/pbm_dispatchtest.py
+pyburlybot_modules/test.py
+pyburlybot_modules/dispatchtest.py
 
 #archives
 *.7z

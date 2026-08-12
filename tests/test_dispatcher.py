@@ -1,57 +1,199 @@
-from importlib.util import module_from_spec, spec_from_file_location
+from contextlib import contextmanager
+from importlib import import_module, invalidate_caches
 from pathlib import Path
-from sys import modules
+import pickle
+import sys
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import TestCase
 
 from util.dispatcher import Dispatcher
+from util.moduleloader import ModuleRegistry
+
+
+class Addons:
+	def __init__(self):
+		self.values = {}
+
+	def _add(self, name, module, value):
+		self.values[name] = (module, value)
+
+
+@contextmanager
+def plugin_package(files):
+	with TemporaryDirectory() as temp_dir:
+		package = "test_plugins"
+		package_dir = Path(temp_dir, package)
+		package_dir.mkdir()
+		Path(package_dir, "__init__.py").write_text("", encoding="utf-8")
+		for name, source in files.items():
+			Path(package_dir, "%s.py" % name).write_text(source, encoding="utf-8")
+
+		sys.path.insert(0, temp_dir)
+		invalidate_caches()
+		try:
+			yield package, package_dir
+		finally:
+			for module_name in tuple(sys.modules):
+				if module_name == package or module_name.startswith(package + "."):
+					sys.modules.pop(module_name, None)
+			sys.path.remove(temp_dir)
+			invalidate_caches()
+
+
+def make_settings(module_names, *, allowmodules=None, serverlabel="test-server"):
+	defaults = {}
+
+	def get_option(option, *, module=None, default=None, **kwargs):
+		defaults[(module, option)] = default
+		return default
+
+	settings = SimpleNamespace(
+		serverlabel=serverlabel,
+		debug=False,
+		allowmodules=set() if allowmodules is None else set(allowmodules),
+		modules=tuple(module_names),
+		denymodules=set(),
+		addons=Addons(),
+		container=SimpleNamespace(network=serverlabel),
+		getOption=get_option,
+	)
+	settings.defaults = defaults
+	return settings
+
+
+def load_dispatcher(settings, registry):
+	dispatcher = Dispatcher(settings, registry)
+	settings.dispatcher = dispatcher
+	dispatcher.reload()
+	return dispatcher
 
 
 class DispatcherTest(TestCase):
-	def setUp(self):
-		Dispatcher.reset()
-
-	def tearDown(self):
-		Dispatcher.reset()
-		modules.pop("pbm_demo", None)
-
-	def test_loads_module_with_modern_importlib_api(self):
-		with TemporaryDirectory() as temp_dir:
-			module_dir = Path(temp_dir, "modules")
-			module_dir.mkdir()
-			Path(module_dir, "pbm_demo.py").write_text(
+	def test_loads_package_module_and_sorts_mappings_once(self):
+		files = {
+			"demo": (
 				"from util import Mapping\n"
 				"def demo(event, bot):\n\tpass\n"
-				"mappings = (Mapping(command='demo', function=demo),)\n",
-				encoding="utf-8",
+				"mappings = (\n"
+				"    Mapping(command='demo', function=demo, priority=20),\n"
+				"    Mapping(command='demo', function=demo, priority=5),\n"
+				")\n"
+			),
+		}
+		with plugin_package(files) as (package, _):
+			registry = ModuleRegistry(package)
+			dispatcher = load_dispatcher(make_settings(("demo",)), registry)
+
+			self.assertEqual(dispatcher.get_module("demo").__name__, "%s.demo" % package)
+			self.assertEqual(
+				[mapping.priority for mapping in dispatcher._getCommandMappings("demo")],
+				[5, 20],
 			)
-			settings = SimpleNamespace(
-				botdir=temp_dir,
-				debug=False,
-				allowmodules=None,
-				modules={"pbm_demo"},
-				denymodules=set(),
-			)
 
-			dispatcher = Dispatcher(settings)
+	def test_bundled_plugins_do_not_pollute_top_level_names(self):
+		stdlib_modules = {name: import_module(name) for name in ("random", "time", "wikipedia")}
+		registry = ModuleRegistry()
+		module_dir = Path(__file__).resolve().parents[1] / "pyburlybot_modules"
 
-			self.assertIn("pbm_demo", dispatcher.loadedModules)
-			self.assertEqual(len(dispatcher._getCommandMappings("demo")), 1)
-
-	def test_all_bundled_modules_import_under_python_3(self):
-		module_dir = Path(__file__).resolve().parents[1] / "modules"
-		failures = []
 		for module_path in sorted(module_dir.glob("*.py")):
-			name = module_path.stem
-			spec = spec_from_file_location(name, module_path)
-			module = module_from_spec(spec)
-			modules[name] = module
-			try:
-				spec.loader.exec_module(module)
-			except Exception as exc:
-				failures.append("%s: %s" % (name, exc))
-			finally:
-				modules.pop(name, None)
+			if module_path.stem != "__init__":
+				registry.import_plugin(module_path.stem)
 
-		self.assertEqual(failures, [])
+		self.assertEqual(registry.import_errors, {})
+		for name, original in stdlib_modules.items():
+			self.assertIs(sys.modules[name], original)
+			self.assertEqual(registry.imported[name].__name__, "pyburlybot_modules.%s" % name)
+
+		index_process = registry.imported["logindexsearch"].IndexProcess
+		serialized_class = pickle.dumps(index_process)
+		registry.reset()
+		restored_class = pickle.loads(serialized_class)
+		self.assertEqual(restored_class.__module__, "pyburlybot_modules.logindexsearch")
+		registry.reset()
+
+	def test_disallowed_requirement_is_not_imported(self):
+		files = {
+			"parent": "REQUIRES = ('blocked',)\n",
+			"blocked": "raise RuntimeError('must not be imported')\n",
+		}
+		with plugin_package(files) as (package, _):
+			registry = ModuleRegistry(package)
+			settings = make_settings(("parent", "blocked"), allowmodules={"parent"})
+			dispatcher = load_dispatcher(settings, registry)
+
+			self.assertFalse(dispatcher.is_module_loaded("parent"))
+			self.assertNotIn("blocked", registry.imported)
+			self.assertNotIn("%s.blocked" % package, sys.modules)
+			self.assertIn("not allowed: blocked", registry.activation_errors[settings.serverlabel]["parent"])
+
+	def test_single_string_requirement_is_normalized_and_loaded(self):
+		files = {
+			"parent": "REQUIRES = 'dependency'\n",
+			"dependency": "VALUE = 42\n",
+		}
+		with plugin_package(files) as (package, _):
+			registry = ModuleRegistry(package)
+			dispatcher = load_dispatcher(make_settings(("parent", "dependency")), registry)
+
+			self.assertEqual(set(dispatcher.modules), {"parent", "dependency"})
+			self.assertEqual(dispatcher.get_module("dependency").VALUE, 42)
+
+	def test_circular_requirements_report_the_dependency_path(self):
+		files = {
+			"first": "REQUIRES = ('second',)\n",
+			"second": "REQUIRES = ('first',)\n",
+		}
+		with plugin_package(files) as (package, _):
+			registry = ModuleRegistry(package)
+			settings = make_settings(("first", "second"))
+			dispatcher = load_dispatcher(settings, registry)
+
+			self.assertEqual(dispatcher.modules, {})
+			self.assertIn(
+				"first -> second -> first",
+				registry.activation_errors[settings.serverlabel]["first"],
+			)
+
+	def test_configuration_initialization_and_addons_are_pipeline_stages(self):
+		files = {
+			"service": (
+				"OPTIONS = {'enabled': (bool, 'Whether enabled', True)}\n"
+				"PROVIDES = ('answer',)\n"
+				"answer = 42\n"
+				"def init(bot):\n\treturn bot.network == 'pipeline-server'\n"
+			),
+		}
+		with plugin_package(files) as (package, _):
+			registry = ModuleRegistry(package)
+			settings = make_settings(("service",), serverlabel="pipeline-server")
+			dispatcher = load_dispatcher(settings, registry)
+
+			self.assertTrue(dispatcher.is_module_loaded("service"))
+			self.assertEqual(settings.defaults[("service", "enabled")], True)
+			self.assertEqual(settings.addons.values["answer"], ("service", 42))
+
+	def test_activation_is_isolated_per_server(self):
+		with plugin_package({"demo": "VALUE = 42\n"}) as (package, _):
+			registry = ModuleRegistry(package)
+			first = load_dispatcher(make_settings(("demo",), serverlabel="first"), registry)
+			second = load_dispatcher(make_settings((), serverlabel="second"), registry)
+
+			self.assertTrue(first.is_module_loaded("demo"))
+			self.assertFalse(second.is_module_loaded("demo"))
+			self.assertIn("demo", registry.imported)
+
+	def test_registry_reset_reimports_changed_source(self):
+		with plugin_package({"demo": "VALUE = 1\n"}) as (package, package_dir):
+			registry = ModuleRegistry(package)
+			settings = make_settings(("demo",))
+			first_dispatcher = load_dispatcher(settings, registry)
+			first_module = first_dispatcher.get_module("demo")
+
+			Path(package_dir, "demo.py").write_text("VALUE = 200\n", encoding="utf-8")
+			registry.reset()
+			second_dispatcher = load_dispatcher(settings, registry)
+			second_module = second_dispatcher.get_module("demo")
+
+			self.assertIsNot(first_module, second_module)
+			self.assertEqual(second_module.VALUE, 200)

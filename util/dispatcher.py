@@ -1,174 +1,161 @@
 from twisted.internet.threads import deferToThread
 
-from sys import stderr
-from traceback import format_exc, print_exc
-from os.path import join, exists
+from traceback import format_exc
 from operator import attrgetter
-from importlib.util import module_from_spec, spec_from_file_location
-from sys import modules as system_modules
 from functools import partial
 
 from .wrapper import BotWrapper
 from .container import SetupContainer
-from .helpers import isIterable, commandSplit, coerceToUnicode
+from .helpers import commandSplit, coerceToUnicode
 from .event import Event
+from .moduleloader import ModuleLoadError
+
 
 class Dispatcher:
-	MODULEDICT = {}
-	NOTLOADED = {}
-	NOTICE = {}
 
-	def __init__(self, settings):
-		self.moddir = join(settings.botdir, "modules")
+	def __init__(self, settings, registry):
 		self.waitmap = {}
 		self.settings = settings
+		self.registry = registry
+		self.serverlabel = settings.serverlabel
 		self.debug = settings.debug
-		self.reload()
 
 	def reload(self):
-		#temporary set to keep track of what we have loaded
-		self.loadedModules = set()
-		
+		self.registry.clear_server(self.serverlabel)
 		self.eventmap = {}
 		# don't clear waitmap on reload to allow for still waiting functions to pass
 		# it's also self managed (hopefully)
-		
 		self.MSGHOOKS = False
-		
+
 		settings = self.settings
-		# prepare list of modules to be loaded
-		self.allowedmodules = settings.allowmodules if settings.allowmodules else settings.modules
-		# remove denied modules
-		if settings.denymodules:
-			self.allowedmodules = self.allowedmodules - settings.denymodules
+		configured = settings.allowmodules or settings.modules
+		self.allowed_modules = set(configured) - set(settings.denymodules)
+		load_order = sorted(configured) if isinstance(configured, set) else configured
+		for module_name in load_order:
+			if module_name in self.allowed_modules:
+				self.load_module(module_name)
+		self._build_event_map()
 
-		# load modules
-		for modulename in self.allowedmodules:
-			self.loadModule(modulename)
+	@property
+	def modules(self):
+		return self.registry.active_modules(self.serverlabel)
 
+	def get_module(self, name):
+		return self.modules.get(name)
 
-	def checkAndLoadReqs(self, module, resolvedModules):
-		reqs = module.REQUIRES
-		if not isIterable(reqs):
-			reqs = (reqs,)
+	def is_module_loaded(self, name):
+		return name in self.modules
+
+	@staticmethod
+	def _requirements(module):
+		requirements = getattr(module, "REQUIRES", ())
+		if requirements is None:
+			return ()
+		if isinstance(requirements, str):
+			return (requirements,)
+		return tuple(requirements)
+
+	def _load_requirements(self, module, parents):
 		notallowed = set()
 		failed = set()
-		for req in reqs:
-			if req in self.loadedModules: continue
-			else:
-				#attempt to load
-				if req not in self.allowedmodules:
-					notallowed.add(req)
-				if not self.loadModule(req, resolvedModules):
-					failed.add(req)
-		if notallowed or failed:
-			return (notallowed, failed)
-		return True
+		for requirement in self._requirements(module):
+			if requirement in self.modules:
+				continue
+			if requirement not in self.allowed_modules:
+				notallowed.add(requirement)
+				continue
+			if not self.load_module(requirement, parents):
+				failed.add(requirement)
+		return notallowed, failed
 
+	def load_module(self, name, parents=()):
+		if name in self.modules:
+			return True
+		if name not in self.allowed_modules:
+			self.registry.record_activation_error(self.serverlabel, name, "Module is not allowed.")
+			return False
+		if name in parents:
+			cycle = " -> ".join(parents + (name,))
+			self.registry.record_activation_error(self.serverlabel, name, "Circular module dependency: %s" % cycle)
+			return False
 
-	def loadModule(self, modulename, resolvedModules=None):
-		if modulename in self.loadedModules: return True
-		print("Loading %s..." % modulename)
-		if not modulename.startswith("pbm_"):
-			if exists(join(self.moddir, "pbm_%s.py" % modulename)):
-				self.NOTICE[modulename] = "pbm_%s found, attempting to load instead of \"%s\" " \
-										  "(modules must start with \"pbm_\")" % (modulename, modulename)
-				modulename = 'pbm_%s' % modulename
-		if resolvedModules and modulename in resolvedModules:
-			self.NOTLOADED[modulename] = "Circular module dependency. Parents: %s" % (resolvedModules)
-			return None
-		module = self.MODULEDICT.get(modulename, None)
+		print("Loading %s..." % name)
+		module = self.registry.import_plugin(name)
 		if module is None:
-			if modulename in self.NOTLOADED: return None
-			try:
-				pathname = join(self.moddir, "%s.py" % modulename)
-				spec = spec_from_file_location(modulename, pathname)
-				if spec is None or spec.loader is None:
-					raise ImportError("Cannot create an import spec for %s" % pathname)
-				module = module_from_spec(spec)
-				# Keep the short module name so multiprocessing can import it on Windows.
-				system_modules[modulename] = module
-				try:
-					spec.loader.exec_module(module)
-				except Exception:
-					system_modules.pop(modulename, None)
-					raise
-			except Exception:
-				self.NOTLOADED[modulename] = format_exc()
-				return None
-		# process module requirements before calling init:
-		if hasattr(module, "REQUIRES"):
-			if not resolvedModules: resolvedModules = {modulename}
-			else: resolvedModules.add(modulename)
-			reqsloaded = self.checkAndLoadReqs(module, resolvedModules)
-			if reqsloaded is None:
-				self.NOTLOADED[modulename] = "Requirements cannot be loaded."
-				return None
-			elif type(reqsloaded) is tuple:
-				notallowed, failed = reqsloaded
-				self.NOTLOADED[modulename] = ""
-				if notallowed and failed:
-					self.NOTLOADED[modulename] += "Requirement(s) \"%s\" not allowed (add to modules/allowmodules), \"%s\" " \
-												  "failed." % (', '.join(notallowed), ', '.join(failed))
-				elif notallowed:
-					self.NOTLOADED[modulename] += "Requirement(s) \"%s\" not loaded because they are not allowed (add to " \
-												  "modules/allowmodules)." % ', '.join(notallowed)
-				else:
-					self.NOTLOADED[modulename] += "Requirement(s) \"%s\" failed to load." % ', '.join(failed)
-				return None
+			return False
 
-		# process module default settings
-		if hasattr(module, "OPTIONS"):
-			for opt, params in module.OPTIONS.items():
-				if len(params) != 3:
-					self.NOTLOADED[modulename] = "Invalid number of parameters for OPTIONS. Require: type, desc, default."
-					return None
-				#using getOption because it already has all the functionality coded in to do this default option setting.
-				self.settings.getOption(opt, server=False, module=modulename, default=params[2], setDefault=True, inreactor=True)
-		# load init() per dispatcher/server
-		# Catch errors that might be thrown on running module.init()
-		if hasattr(module, "init"):
+		notallowed, failed = self._load_requirements(module, parents + (name,))
+		if notallowed or failed:
+			parts = []
+			if notallowed:
+				parts.append("not allowed: %s" % ", ".join(sorted(notallowed)))
+			if failed:
+				parts.append("failed: %s" % ", ".join(sorted(failed)))
+			self.registry.record_activation_error(
+				self.serverlabel, name, "Requirements could not be loaded (%s)." % "; ".join(parts)
+			)
+			return False
+
+		stages = (
+			("OPTIONS", self._configure_module),
+			("init()", self._initialize_module),
+			("PROVIDES", self._register_addons),
+		)
+		for stage_name, stage in stages:
 			try:
-				if not module.init(SetupContainer(self.settings.container)):
-					self.NOTLOADED[modulename] = "Error in init() for server (%s)" % self.settings.serverlabel
-					return None
+				stage(name, module)
+			except ModuleLoadError as exc:
+				self.registry.record_activation_error(self.serverlabel, name, str(exc))
+				return False
 			except Exception:
-				self.NOTLOADED[modulename] = "Error in init() for server (%s):\n%s" % (self.settings.serverlabel, format_exc())
-				return None
-		
-		# check provides (AFTER init) and add them to ADDONS
-		if hasattr(module, "PROVIDES"):
-			for item in module.PROVIDES:
-				try:
-					self.settings.addons._add(item, modulename, getattr(module, item))
-				except AttributeError:
-					self.NOTLOADED[modulename] = "Error in PROVIDES for server (%s):\n%s" % (self.settings.serverlabel, format_exc())
-					return None
-		
-		self.MODULEDICT[modulename] = module
-		if hasattr(module, "mappings"):
-			self.processMappings(module)
-		print("Loaded %s." % modulename)
-		self.loadedModules.add(modulename)
+				self.registry.record_activation_error(
+					self.serverlabel, name, "Error in %s:\n%s" % (stage_name, format_exc())
+				)
+				return False
+
+		self.registry.activate(self.serverlabel, name, module)
+		print("Loaded %s." % name)
 		return True
-		
-	def processMappings(self, module):
+
+	def _configure_module(self, name, module):
+		for option, params in getattr(module, "OPTIONS", {}).items():
+			if len(params) != 3:
+				raise ModuleLoadError("Invalid OPTIONS entry %r; expected type, description, and default." % option)
+			self.settings.getOption(
+				option, server=False, module=name, default=params[2], setDefault=True, inreactor=True
+			)
+
+	def _initialize_module(self, name, module):
+		initialize = getattr(module, "init", None)
+		if initialize is not None and not initialize(SetupContainer(self.settings.container)):
+			raise ModuleLoadError("init() returned a false value.")
+
+	def _register_addons(self, name, module):
+		provided = {item: getattr(module, item) for item in getattr(module, "PROVIDES", ())}
+		for item, value in provided.items():
+			self.settings.addons._add(item, name, value)
+
+	def _build_event_map(self):
+		for module in self.modules.values():
+			self._add_mappings(module)
+		for event_mappings in self.eventmap.values():
+			event_mappings["instant"].sort(key=attrgetter("priority"))
+			event_mappings["regex"].sort(key=attrgetter("priority"))
+			for command_mappings in event_mappings["command"].values():
+				command_mappings.sort(key=attrgetter("priority"))
+
+	def _add_mappings(self, module):
 		eventmap = self.eventmap
-		for mapping in module.mappings:
+		for mapping in getattr(module, "mappings", ()):
 			for etype in mapping.types:
 				etype = etype.lower()
 
-				if etype not in eventmap:
-					eventmap[etype] = {}
-					eventmap[etype]["instant"] = []
-					eventmap[etype]["regex"] = []
-					eventmap[etype]["command"] = {}
+				event_mappings = eventmap.setdefault(etype, {"instant": [], "regex": [], "command": {}})
 
 				if etype == "sendmsg" and mapping.override:
 					self.MSGHOOKS = True
 				if not mapping.command and not mapping.regex: 
-					eventmap[etype]["instant"].append(mapping)
-					eventmap[etype]["instant"].sort(key=attrgetter('priority'))
+					event_mappings["instant"].append(mapping)
 
 				if mapping.command:
 					mapcom = mapping.command
@@ -178,35 +165,16 @@ class Dispatcher:
 						mapping.function.__module__ = module.__name__
 					for commandname in mapcom:
 						commandname = commandname.lower()
-						eventmap[etype]["command"].setdefault(commandname, []).append(mapping)
-						eventmap[etype]["command"][commandname].sort(key=attrgetter('priority'))
+						event_mappings["command"].setdefault(commandname, []).append(mapping)
 
 				if mapping.regex:
-					eventmap[etype]["regex"].append(mapping)
-					eventmap[etype]["regex"].sort(key=attrgetter('priority'))
+					event_mappings["regex"].append(mapping)
 	
 	def _getCommandMappings(self, cmd=None):
 		if cmd:
 			return self.eventmap.get("privmsged", {}).get("command", {}).get(cmd, [])
 		else:
 			return list(self.eventmap.get("privmsged", {}).get("command", {}).values())
-	
-	@classmethod
-	def reset(cls):
-		cls.unloadModules()
-		cls.MODULEDICT.clear()
-		cls.NOTLOADED.clear()
-
-	@classmethod
-	def unloadModules(cls):
-		# call modules unload function to clean up.
-		for modname, module in cls.MODULEDICT.items():
-			if hasattr(module, "unload"): 
-				print("UNLOADING (%s)" % modname)
-				try: module.unload()
-				except Exception:
-					print("ERROR in unloading %s" % modname)
-					print_exc()
 	
 	def dispatch(self, botinst, event_type, **eventkwargs):
 		settings = self.settings
@@ -309,18 +277,5 @@ class Dispatcher:
 				if wdset:
 					try: wdset.remove(wd)
 					except KeyError: pass
-				if not wdset:
-					self.waitmap.pop(etype, None)
-		
-	@classmethod
-	def showLoadErrors(cls):
-		if cls.NOTICE:
-			print("\nNOTICE: MODULE LOAD(S) MODIFIED:", file=stderr)
-			for module, reason in cls.NOTICE.items():
-				stderr.write('  %s: %s\n' % (module, reason))
-			print("\n", file=stderr)
-		if cls.NOTLOADED:
-			print("\nWARNING: MODULE(S) NOT LOADED:", file=stderr)
-			for module, reason in cls.NOTLOADED.items():
-				stderr.write('  %s: %s\n' % (module, reason))
-			print("\n", file=stderr)
+					if not wdset:
+						self.waitmap.pop(etype, None)

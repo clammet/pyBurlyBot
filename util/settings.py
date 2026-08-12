@@ -5,7 +5,7 @@ from copy import deepcopy
 from json import dump, load, JSONEncoder
 from collections import OrderedDict
 from collections.abc import MutableSet
-from sys import modules, argv, executable
+from sys import argv, executable
 from atexit import register
 
 from twisted.internet.ssl import CertificateOptions, PrivateCertificate, platformTrust
@@ -17,6 +17,7 @@ from twisted.internet.threads import blockingCallFromThread
 from util.libs import OrderedSet
 from util.container import Container
 from util.dispatcher import Dispatcher
+from util.moduleloader import ModuleRegistry
 from util.client import BurlyBotFactory
 from util.db import DBManager
 from util.timer import Timers
@@ -179,17 +180,16 @@ class Server(BaseServer):
 		self.container = Container(self)
 		self._factory = BurlyBotFactory(self)
 
-	def initializeReload(self):
+	def reload_modules(self, registry):
 		# Addons should only be created once
 		if self.addons is None: self.addons = _ADDONS()
 		else: self.addons.clear()
-		# Dispatcher should only be created once.
+		# Assign the dispatcher before loading so module init() can resolve dependencies.
 		if self.dispatcher is None:
-			#create dispatcher:
-			self.dispatcher = Dispatcher(self)
-		#else reload it
+			self.dispatcher = Dispatcher(self, registry)
 		else:
-			self.dispatcher.reload()
+			self.dispatcher.registry = registry
+		self.dispatcher.reload()
 		
 	def __getattr__(self, name):
 		# get Server setting if set, else fall back to global Settings
@@ -326,11 +326,10 @@ class Server(BaseServer):
 	def getModule(self, modname):
 		if not self.isModuleAvailable(modname):
 			raise ConfigException("Module (%s) is not available." % modname)
-		else:
-			return Dispatcher.MODULEDICT.get(modname)
-	
+		return self.dispatcher.get_module(modname)
+
 	def isModuleAvailable(self, modname):
-		return (modname not in self.denymodules) and (modname in Dispatcher.MODULEDICT)
+		return self.dispatcher is not None and self.dispatcher.is_module_loaded(modname)
 		
 	def getAddon(self, addonname):
 		try:
@@ -385,6 +384,7 @@ class SettingsBase:
 	
 	def __init__(self):
 		self.servers = {}
+		self.module_registry = ModuleRegistry()
 		self._setDefaults()
 
 	def _loadsettings(self):
@@ -483,23 +483,9 @@ class SettingsBase:
 	def reloadStage2(self):
 		#disconnect before reloading dispatchers
 		self._disconnect(self.oldservers)
-		# Reset Dispatcher loaded modules
-		# get a list of previously loaded modules so can track stale modules
-		oldmodules = set(Dispatcher.MODULEDICT.keys())
-		Dispatcher.reset()
 		#create databases so init() can do database things.
 		self.createDatabases(self.newservers)
-		for server in self.servers.values():
-			server.initializeReload()
-		Dispatcher.showLoadErrors()
-		#compare currently loaded modules to oldmodules
-		oldmodules = oldmodules.difference(set(Dispatcher.MODULEDICT.keys()))
-		#remove oldmodules from sys.modules
-		for module in oldmodules:
-			print("Removing module: %s" % module)
-			try: del modules[module]
-			except KeyError:
-				print("WARNING: module was never in modules %s" % module)
+		self.module_registry.reload_servers(self.servers.values())
 		# connect after load dispatchers
 		self._connect(self.newservers)
 		self.oldservers = self.newservers = []
@@ -542,7 +528,7 @@ class SettingsBase:
 		#stop timers or just not care...
 		Timers._stopall()
 		reactor.callLater(2.0, self.databasemanager.shutdown) # to give time for individual shutdown
-		Dispatcher.unloadModules()
+		self.module_registry.unload()
 		reactor.callLater(2.5, reactor.stop) # to give time for individual shutdown
 		# TODO: make sure this works properly
 		# 	it may act odd on Windows due to execv not replacing current process.
@@ -551,7 +537,7 @@ class SettingsBase:
 			
 	def hardshutdown(self):
 		Timers._stopall()
-		Dispatcher.unloadModules()
+		self.module_registry.unload()
 		self.databasemanager.shutdown()
 
 def relaunchfunc(pythonbin, args):
