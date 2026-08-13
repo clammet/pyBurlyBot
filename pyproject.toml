@@ -2,8 +2,18 @@
 target-version = "py314"
 
 [tool.ruff.lint]
-select = ["ANN", "F"]
+select = ["ANN", "ASYNC", "B", "BLE", "DTZ", "E4", "E7", "E9", "F", "PLE", "PLW", "RUF", "S"]
 ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S301", "S603"]
+"microirc_harness.py" = ["S603"]
+"pyburlybot_modules/adminfuncs.py" = ["S311"]
+"pyburlybot_modules/butt.py" = ["S311"]
+"pyburlybot_modules/random.py" = ["S311"]
+"pyburlybot_modules/updaterelaunch.py" = ["S603"]
+"pyburlybot_modules/wikipedia.py" = ["S311"]
+"util/irctools.py" = ["S311"]
 
 [tool.mypy]
 python_version = "3.14"

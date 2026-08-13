@@ -111,6 +111,7 @@ class MicroIRCHarnessTest(TestCase):
             capture_output=True,
             text=True,
             timeout=40,
+            check=False,
         )
 
         diagnostic = result.stdout + result.stderr

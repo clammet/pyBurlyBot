@@ -119,18 +119,11 @@ TEST_COMMANDS: tuple[TestCommand, ...] = (
     TestCommand("random", "rand", "10"),
     TestCommand("random", "choice", "alpha beta gamma"),
     TestCommand("random", "coinflip"),
-    TestCommand("samplemodule", "samplecommand", "something argument handling"),
-    TestCommand("samplemodule", "print", "argument handling"),
-    TestCommand("sendwaiteventexample", "waitexample"),
-    TestCommand("sendwaiteventexample", "waitlist"),
     TestCommand("simplecommands", "simplecommands", "microirc-unknown"),
-    TestCommand("stateexample", "state", "channel", multiline=True),
-    TestCommand("steamchat", "steamchat", "status"),
+    TestCommand("state", "state", "network"),
     TestCommand("tell", "tell", "{nick} harness test"),
     TestCommand("tell", "remind", "microirc-nobody at invalid-date harness test"),
     TestCommand("time", "time", "{nick}", multiline=True),
-    TestCommand("timecube", "timecube", "microirc"),
-    TestCommand("timerexample", "timers", "show", multiline=True),
     TestCommand("urbandictionary", "urbandictionary", "pyBurlyBot"),
     TestCommand("urlinfo", "head", "https://example.com/"),
     TestCommand("urlinfo", "title", "https://example.com/"),
@@ -240,7 +233,7 @@ def load_server_configs(
 
         port, tls = _parse_port(item.get("port"))
         configured_modules: Any = (
-            item.get("allowmodules") or config.get("modules") or ("core",)
+            item.get("allowmodules") or config.get("modules") or ()
         )
         if not isinstance(configured_modules, (list, tuple)):
             raise MicroIRCError("Configured modules must be a list")
@@ -267,7 +260,7 @@ def load_server_configs(
         nick_suffix = _server_value(item, config, "nicksuffix", "_")
         command_prefix = _server_value(item, config, "commandprefix", "!")
         cert: Any = _server_value(item, config, "cert")
-        verify: Any = _server_value(item, config, "verify", False)
+        verify: Any = _server_value(item, config, "verify", True)
         if not all(
             isinstance(value, str)
             for value in (encoding, bot_nick, nick_suffix, command_prefix)
@@ -585,7 +578,7 @@ class IRCSession:
         if nickname is None:
             return False
         candidate = nickname.lower()
-        for configured in (self.settings.bot_nick,) + self.settings.alt_bot_nicks:
+        for configured in (self.settings.bot_nick, *self.settings.alt_bot_nicks):
             base = configured.lower()
             if candidate == base:
                 return True

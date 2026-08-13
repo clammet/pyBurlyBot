@@ -59,3 +59,5 @@ _trial_temp/
 
 #PyCharm metadata
 .idea/
+/reports
+.DS_Store

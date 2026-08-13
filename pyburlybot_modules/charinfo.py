@@ -1,53 +1,72 @@
-from util.event import Event
-from util.types import BotLike
-# charinfo
-# character info module. Information about unicode characters.
-
-from unicodedata import name
-from re import compile as compile_re, IGNORECASE
+from re import IGNORECASE, compile as compile_re
+from collections.abc import Iterator
+from unicodedata import lookup, name
 
 from util import Mapping, functionHelp
+from util.event import Event
+from util.types import BotLike
 
-# build mini database of character names:
-CHARACTER_DESC = []
-for c in range(200000): # I think there is like 110000 unicode characters?? I don't know what ordinals they are though
-	try: CHARACTER_DESC.append((c, name(chr(c))))
-	except ValueError: pass
-# U+0430 DESC (CHR)
+
 RPLFORMAT = "U+%04X %s (%s)"
-# hex(ord(u"\u30F5"))
-REGHEX = compile_re("^[0-9A-F]{4}$", IGNORECASE)
+REGHEX = compile_re(r"^(?:U\+)?([0-9A-F]{4,6})$", IGNORECASE)
+MAX_CODEPOINT = 0x10FFFF
+MAX_SEARCH_RESULTS = 9
 
-def _getname(c: str) -> str:
-	try: return name(c)
-	except ValueError: return "NO NAME"
-	
+
+def _getname(character: str) -> str:
+    try:
+        return name(character)
+    except ValueError:
+        return "NO NAME"
+
+
+def _search_names(query: str) -> Iterator[tuple[int, str]]:
+    """Lazily scan Unicode names and stop once callers have enough matches."""
+    normalized = " ".join(query.upper().split())
+    try:
+        exact = lookup(normalized)
+    except KeyError:
+        exact = None
+    if exact is not None:
+        yield ord(exact), name(exact)
+    exact_ordinal = ord(exact) if exact is not None else None
+    for ordinal in range(MAX_CODEPOINT + 1):
+        if ordinal == exact_ordinal:
+            continue
+        try:
+            description = name(chr(ordinal))
+        except ValueError:
+            continue
+        if normalized in description:
+            yield ordinal, description
+
 
 def funicode(event: Event, bot: BotLike) -> None:
-	""" unicode [character(s)/description/hex]. Displays information about provided characters (limit of 3,) 
-	or does a search on the character description or provides information on the character indexed by the given hexidecimal."""
-	arg = event.argument
-	if not arg:
-		return bot.say(functionHelp(funicode))
-	if REGHEX.match(arg):
-		i = int(arg, 16)
-		u = chr(i)
-		return bot.say(RPLFORMAT % (i, _getname(u), u))
-	elif len(arg) <= 3:
-		output = []
-		for u in arg:
-			output.append(RPLFORMAT % (ord(u), _getname(u), u))
-		return bot.say(", ".join(output))
-	else:
-		output = []
-		for i, entry in CHARACTER_DESC:
-			if len(output) > 8: break # could be lowered to improve performance
-			if arg.lower() in entry.lower():
-				output.append(RPLFORMAT % (i, entry, chr(i)))
-		if output:
-			return bot.say(", ".join(output))
-		else:
-			return bot.say("No characters found.")
-		
+    """unicode [characters|description|4-6 digit hex]. Show Unicode information."""
+    argument = event.argument
+    if not argument:
+        return bot.say(functionHelp(funicode))
+    hex_match = REGHEX.fullmatch(argument)
+    if hex_match:
+        ordinal = int(hex_match.group(1), 16)
+        if ordinal > MAX_CODEPOINT:
+            return bot.say("Code point is outside Unicode's range.")
+        character = chr(ordinal)
+        return bot.say(RPLFORMAT % (ordinal, _getname(character), character))
+    if len(argument) <= 3:
+        return bot.say(
+            ", ".join(
+                RPLFORMAT % (ord(character), _getname(character), character)
+                for character in argument
+            )
+        )
+
+    output = []
+    for ordinal, description in _search_names(argument):
+        output.append(RPLFORMAT % (ordinal, description, chr(ordinal)))
+        if len(output) == MAX_SEARCH_RESULTS:
+            break
+    bot.say(", ".join(output) if output else "No characters found.")
+
 
 mappings = (Mapping(command=("u", "unicode"), function=funicode),)

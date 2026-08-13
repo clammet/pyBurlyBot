@@ -132,18 +132,18 @@ class MicroIRCTest(TestCase):
 
         discovered = set(discover_static_commands(modules, module_dir))
         configured = {command.command for command in TEST_COMMANDS}
-        selected = select_test_commands(("calc", "timerexample"))
+        selected = select_test_commands(("calc", "state"))
 
         self.assertEqual(configured, discovered)
         self.assertEqual(
             [command.body("TestNick") for command in selected],
-            ["calc 1 + 1", "timers show"],
+            ["calc 1 + 1", "state network"],
         )
         self.assertFalse(selected[0].multiline)
-        self.assertTrue(selected[1].multiline)
+        self.assertFalse(selected[1].multiline)
         self.assertEqual(
-            command_from_body("!timers show", "!"),
-            TestCommand("timerexample", "timers", "show", multiline=True),
+            command_from_body("!state network", "!"),
+            TestCommand("state", "state", "network"),
         )
 
     def test_result_wait_consumes_one_or_all_multiline_replies(self) -> None:

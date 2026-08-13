@@ -1,94 +1,95 @@
-from typing import Any
-from util.types import BotLike
-# selfpaste
-# *NIX ONLY. (Unless you code up the file inode part for the win32 side...)
-
-# used hashid because lazy
-
-# TODO: probably not very secure. Probably vunerable to 100 JS injection things.
-
-# need cron file that cleans up stale things that's run from cron
-
-from tempfile import NamedTemporaryFile
-from os.path import exists, join
-from os import chmod, makedirs, stat, rename
-from errno import EEXIST
-from stat import S_IRUSR, S_IWUSR, S_IRGRP, S_IWGRP, S_IROTH
 from html import escape
+from os import chmod, replace
+from pathlib import Path
+from secrets import token_urlsafe
+from stat import S_IRGRP, S_IROTH, S_IRUSR, S_IWUSR
+from tempfile import NamedTemporaryFile
+from typing import Any
 from urllib.parse import unquote
 
-from hashids import Hashids
-hashids = Hashids()
-
 from util import URLREGEX
+from util.types import BotLike
+
 
 PROVIDES = ("paste",)
-
 OPTIONS = {
-	"wwwroot" : (str, "Web directory location for storing pastes.", "data/pastes/"),
-	"url_prefix" : (str, "Prefix of the webfacing URL. e.g. 'http://domain.com/paste/'", "http://localhost/pastepls"),
+    "wwwroot": (str, "Web directory location for storing pastes.", "data/pastes/"),
+    "url_prefix": (
+        str,
+        "Prefix of the web-facing URL, e.g. https://example.test/paste/.",
+        "http://localhost/pastepls",
+    ),
 }
 
-# tempfile.NamedTemporaryFile  dir= module/server path for www. prefix=tmp
-# after file has been got, get it's inode number, write to file, then mode to hex(inode)
-
-TEMPLATE = """<!DOCTYPE html>
-<html>
+TEMPLATE = """<!doctype html>
+<html lang="en">
 <head>
-	<meta charset="utf-8" />
-	<title>%s</title>
-	<link href='https://fonts.googleapis.com/css?family=Oxygen+Mono' rel='stylesheet' type='text/css'>
-	<link rel="stylesheet" href="style/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>%s</title>
 </head>
 <body>
-<h3>%s</h3>
+<h1>%s</h1>
 %s
 </body>
 </html>
 """
 
-# TODO: Do we need to define some sort of 'typical paste API'?
-def paste(s: str, bot: BotLike | None=None, title: str="BurlyBot paste",
-	**kwargs: Any) -> str:
-	assert(bot is not None)
-	wwwroot = bot.getOption("wwwroot", module="selfpaste")
-	urlprefix = bot.getOption("url_prefix", module="selfpaste")
-	assert(wwwroot and urlprefix)
-	if not exists(wwwroot):
-		try: makedirs(wwwroot)
-		except OSError as e:
-			if e.errno != EEXIST:
-				return "PASTE ERROR: Cannot access wwwroot"
-		
-	tempfile = NamedTemporaryFile(mode='w+b', dir=wwwroot, delete=False)
-	
-	nf = "%s.%%s" % hashids.encode(stat(tempfile.name).st_ino)
-	if "http" in s:
-		# linkify stuff.
-		# more tedious than I thought it would be... process each line, and cut out the surrounding nonlink text to escape
-		title = escape(title, quote=True)
-		lastend = 0
-		parts = []
-		for match in URLREGEX.finditer(s):
-			mstart, mend = match.span()
-			parts.append(escape(s[lastend:mstart], quote=True))
-			m = match.group()
-			#ms = m.split("://", 1)
-			# Assume generated URLs are already encoded properly, only need to htmlencode them
-			parts.append('<a href="%s">%s</a>' % (escape(m, quote=True), escape(unquote(m), quote=True)))
-			lastend = mend
-		parts.append(escape(s[lastend:], quote=True))
-		s = TEMPLATE % (title, title, "".join(("<p>%s</p>" % x for x in "".join(parts).split("\n"))))
-		nf = nf % "html"
-	else:
-		nf = nf % "txt"
-	tempfile.write(s.encode("utf-8"))
-	tempfile.close()
-	chmod(tempfile.name, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH) # 664
-	rename(tempfile.name, join(wwwroot, nf))
-	return "%s/%s" % (urlprefix.rstrip("/"), nf)
-	
-	
+
+def _html_paste(content: str, title: str) -> str:
+    parts: list[str] = []
+    last_end = 0
+    for match in URLREGEX.finditer(content):
+        start, end = match.span()
+        parts.append(escape(content[last_end:start], quote=True))
+        url = match.group()
+        parts.append(
+            '<a rel="nofollow noreferrer" href="%s">%s</a>'
+            % (escape(url, quote=True), escape(unquote(url), quote=True))
+        )
+        last_end = end
+    parts.append(escape(content[last_end:], quote=True))
+    escaped_title = escape(title, quote=True)
+    paragraphs = "".join("<p>%s</p>" % line for line in "".join(parts).splitlines())
+    return TEMPLATE % (escaped_title, escaped_title, paragraphs)
+
+
+def paste(
+    content: str,
+    bot: BotLike | None = None,
+    title: str = "BurlyBot paste",
+    **kwargs: Any,
+) -> str:
+    if bot is None:
+        raise ValueError("selfpaste requires a bot context")
+    root = Path(bot.getOption("wwwroot", module="selfpaste"))
+    url_prefix = bot.getOption("url_prefix", module="selfpaste")
+    if not url_prefix:
+        raise ValueError("selfpaste url_prefix is empty")
+    root.mkdir(parents=True, exist_ok=True)
+    if not root.is_dir():
+        raise OSError("selfpaste wwwroot is not a directory")
+
+    is_html = bool(URLREGEX.search(content))
+    extension = "html" if is_html else "txt"
+    rendered = _html_paste(content, title) if is_html else content
+    target_name = "%s.%s" % (token_urlsafe(12), extension)
+    with NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=root,
+        prefix=".paste-",
+        delete=False,
+    ) as temporary:
+        temporary.write(rendered)
+        temporary.flush()
+        temporary_path = Path(temporary.name)
+    chmod(temporary_path, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+    replace(temporary_path, root / target_name)
+    return "%s/%s" % (url_prefix.rstrip("/"), target_name)
+
+
 def init(bot: BotLike) -> bool:
-	# TODO: maybe check if wwwroot is writable?
-	return True
+    root = Path(bot.getOption("wwwroot", module="selfpaste"))
+    root.mkdir(parents=True, exist_ok=True)
+    return root.is_dir()

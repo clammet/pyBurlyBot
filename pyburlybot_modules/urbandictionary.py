@@ -6,63 +6,68 @@ from util.types import BotLike
 from util import Mapping
 
 from textwrap import wrap as textwrap, dedent
-from json import load as jsonload
-from urllib.request import urlopen
 from urllib.parse import quote as urlquote
+from util.http import http
 from util.irctools import bold
 from re import compile as re_compile
 
 DEFINITION_LENGTH = 250
 TOTAL_LENGTH = 325
-API_URL = 'http://api.urbandictionary.com/v0/define?term='
-RANDOM_URL = 'http://api.urbandictionary.com/v0/random'
+API_URL = "https://api.urbandictionary.com/v0/define?term="
+RANDOM_URL = "https://api.urbandictionary.com/v0/random"
 R_SQUAREBRACKETS = re_compile(r'\[([a-zA-Z0-9.\'"!@#$%^&*()+=\\/\|\-_;:<>{} ]*?)\]')
 
 
 def format_definition(json_obj: dict[str, Any]) -> str:
-	""" Format an API-provided JSON object for display"""
-	word = json_obj['word']
-	definition = dedent(json_obj['definition']).replace('\r\n', ' ')
-	definition = R_SQUAREBRACKETS.sub(r'\1', definition)
-	example = dedent(json_obj['example']).replace('\r\n', ' ')
-	example = R_SQUAREBRACKETS.sub(r'\1', example)
-	permalink = json_obj['permalink']
+    """Format an API-provided JSON object for display"""
+    word = json_obj["word"]
+    definition = dedent(json_obj["definition"]).replace("\r\n", " ")
+    definition = R_SQUAREBRACKETS.sub(r"\1", definition)
+    example = dedent(json_obj["example"]).replace("\r\n", " ")
+    example = R_SQUAREBRACKETS.sub(r"\1", example)
+    permalink = json_obj["permalink"]
 
-	parts = textwrap(definition, DEFINITION_LENGTH)
-	definition = parts[0]
-	if len(parts) > 1:
-		definition += ' [...]'
+    parts = textwrap(definition, DEFINITION_LENGTH)
+    definition = parts[0]
+    if len(parts) > 1:
+        definition += " [...]"
 
-	if example:
-		parts = textwrap(example, TOTAL_LENGTH - len(definition))
-		example = parts[0]
-		if len(parts) > 1:
-			example += ' [...]'
+    if example:
+        parts = textwrap(example, TOTAL_LENGTH - len(definition))
+        example = parts[0]
+        if len(parts) > 1:
+            example += " [...]"
 
-	s = bold(word) + ': '
-	if definition and not example:
-		s += definition
-	elif example and not definition:
-		s += 'E.g. ' + example
-	else:
-		# U+2014 EM DASH
-		s += definition + ' \u2014 e.g. ' + example
+    s = bold(word) + ": "
+    if definition and not example:
+        s += definition
+    elif example and not definition:
+        s += "E.g. " + example
+    else:
+        # U+2014 EM DASH
+        s += definition + " \u2014 e.g. " + example
 
-	return '%s (%s)' % (s, permalink)
+    return "%s (%s)" % (s, permalink)
 
 
 def urbandictionary(event: Event, bot: BotLike) -> None:
-	""" urbandictionary [TERM]. Searches Urban Dictionary for TERM if supplied.
-	Otherwise a random definition will be displayed."""
-	if not event.argument:
-		json_obj = jsonload(urlopen(RANDOM_URL))
-	else:
-		json_obj = jsonload(urlopen(API_URL + urlquote(event.argument)))
-		if 'error' in json_obj:
-			return bot.say("An API error was returned when looking up the definition for '%s': %s" % (bold(event.argument), json_obj['error']))
-		if not json_obj['list']:
-			return bot.say("No definition found for '%s'." % bold(event.argument))
+    """urbandictionary [TERM]. Searches Urban Dictionary for TERM if supplied.
+    Otherwise a random definition will be displayed."""
+    if not event.argument:
+        json_obj = http.get_json(RANDOM_URL)
+    else:
+        json_obj = http.get_json(API_URL + urlquote(event.argument))
+        if "error" in json_obj:
+            return bot.say(
+                "An API error was returned when looking up the definition for '%s': %s"
+                % (bold(event.argument), json_obj["error"])
+            )
+        if not json_obj["list"]:
+            return bot.say("No definition found for '%s'." % bold(event.argument))
 
-	return bot.say(format_definition(json_obj['list'][0]))
+    return bot.say(format_definition(json_obj["list"][0]))
 
-mappings = (Mapping(command=("urbandictionary", "urband", "ud"), function=urbandictionary),)
+
+mappings = (
+    Mapping(command=("urbandictionary", "urband", "ud"), function=urbandictionary),
+)

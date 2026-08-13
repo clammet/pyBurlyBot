@@ -1,71 +1,52 @@
 from typing import Any
-from util.types import BotLike
-# OpenWeather API
-# https://openweathermap.org/api
-# Requires:
-#     API_KEY: https://openweathermap.org/appid
-#     Working location module
+from urllib.parse import urlencode
 
-from urllib.request import urlopen
-from json import load
+from util import Option
+from util.http import http
 from util.settings import ConfigException
+from util.types import BotLike
+
 
 OPTIONS = {
-	"API_KEY" : (str, "API key for use with Weather Underground services.", "not_a_key"),
+    "API_KEY": Option(
+        str,
+        "API key for OpenWeather services.",
+        "",
+        secret=True,
+        writeonly=True,
+    ),
 }
 
-# key, features, lat, lon
-URL = "https://api.openweathermap.org/data/2.5/%s?appid=%s&lat=%s&lon=%s&units=metric"
-
-API_KEY = None
-CSE_ID = None
-
-def get_weather(lat: float | str, lon: float | str) -> dict[str, Any]:
-	""" Query OpenWeatherMap for current weather conditions.
-	https://openweathermap.org/current
-	"""
-	if not API_KEY:
-		raise ConfigException("Require API_KEY for OpenWeather API. Reload after setting.")
-	f = urlopen(URL % ('weather', API_KEY, lat, lon))
-	weather_data = load(f)
-	if f.getcode() == 200:
-		return weather_data
-	else:
-		raise RuntimeError("Error (%s): %s" % (f.getcode(), weather_data.replace("\n", " ")))
+URL = "https://api.openweathermap.org/data/2.5/%s?%s"
 
 
-# Not used for weather because doesn't contain "display_location"
-def get_forecast(lat: float | str, lon: float | str) -> dict[str, Any]:
-	""" Query OpenWeatherMap for 5 day / 3 hour forecast
-	https://openweathermap.org/forecast5
-	"""
-	if not API_KEY:
-		raise ConfigException("Require API_KEY for OpenWeather API. Reload after setting.")
-	f = urlopen(URL % ('forecast', API_KEY, lat, lon))
-	forecast = load(f)
-	if f.getcode() == 200:
-		return forecast
-	else:
-		raise RuntimeError("Error (%s): %s" % (f.getcode(), forecast.replace("\n", " ")))
+def _query(
+    bot: BotLike, endpoint: str, lat: float | str, lon: float | str
+) -> dict[str, Any]:
+    key = bot.getOption("API_KEY", module="openweathermap_api")
+    if not key:
+        raise ConfigException("Require API_KEY for OpenWeather API.")
+    data = http.get_json(
+        URL
+        % (
+            endpoint,
+            urlencode({"appid": key, "lat": lat, "lon": lon, "units": "metric"}),
+        )
+    )
+    if not isinstance(data, dict):
+        raise RuntimeError("OpenWeather returned a non-object response.")
+    return data
 
 
-def get_dailyforecast(lat: float | str, lon: float | str,
-	days: int=5) -> dict[str, Any]:
-	""" Query OpenWeatherMap for 16 day / daily forecast data
-	https://openweathermap.org/forecast16
-	:param days: Number of days for which to get a forecast, current max of 16
-	"""
-	if not API_KEY:
-		raise ConfigException("Require API_KEY for OpenWeather API. Reload after setting.")
-	f = urlopen(URL % ('forecast/daily', API_KEY, lat, lon) + '&cnt=%d' % days)
-	forecast = load(f)
-	if f.getcode() == 200:
-		return forecast
-	else:
-		raise RuntimeError("Error (%s): %s" % (f.getcode(), forecast.replace("\n", " ")))
+def get_weather(bot: BotLike, lat: float | str, lon: float | str) -> dict[str, Any]:
+    """Query OpenWeather for current conditions."""
+    return _query(bot, "weather", lat, lon)
+
+
+def get_forecast(bot: BotLike, lat: float | str, lon: float | str) -> dict[str, Any]:
+    """Query OpenWeather for its five-day, three-hour forecast."""
+    return _query(bot, "forecast", lat, lon)
 
 
 def init(bot: BotLike) -> bool:
-	global API_KEY # oh nooooooooooooooooo
-	API_KEY = bot.getOption("API_KEY", module="openweathermap_api")
-	return True
+    return True

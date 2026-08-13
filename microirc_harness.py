@@ -26,16 +26,7 @@ DEFAULT_TEMPLATE = PROJECT_ROOT / "microirc_harness.conf"
 DEFAULT_SECRETS_CONFIG = PROJECT_ROOT / "BurlyBot.json"
 API_CREDENTIAL_OPTIONS = frozenset({"API_KEY", "CSE_ID"})
 EXCLUDED_HARNESS_MODULES: Mapping[str, str] = {
-    "debugging": "development-only commands",
-    "dpaste": "redundant remote paste provider; the harness uses selfpaste",
-    "nicktools": "Rizon-specific and delays local channel joining",
-    "samplemodule": "example module",
-    "sendwaiteventexample": "example module",
-    "stateexample": "example module",
-    "steamchat": "declared deprecated/abandoned/experimental",
-    "timerexample": "example module",
     "updaterelaunch": "mutates and restarts the source checkout",
-    "wuapi": "obsolete Weather Underground API helper",
 }
 
 
@@ -341,7 +332,7 @@ def run_harness(args: argparse.Namespace) -> int:
         runtime_dir = Path(temp_dir)
         try:
             runtime_config_path = write_runtime_config(config, runtime_dir, target)
-        except Exception:
+        except HarnessError, OSError, TypeError, ValueError:
             server.server_close()
             raise
         if imported_credentials:

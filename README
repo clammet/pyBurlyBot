@@ -1,5 +1,20 @@
 This is internet IRC bot pyBurlyBot
 
+External word services
+----------------------
+
+The `wordsapi` module uses Free Dictionary API v2 for English definitions and
+embedded synonyms. Replies include the supplied Wiktionary source URL and
+license name; the returned content is generally CC BY-SA 3.0. See
+https://dictionaryapi.dev/ and https://creativecommons.org/licenses/by-sa/3.0/.
+
+Spelling suggestions and synonym fallback use the Datamuse API. Datamuse asks
+public applications to acknowledge the service; see https://www.datamuse.com/api/.
+No key is required through 2026. Datamuse has announced that keys will become
+mandatory on 1 January 2027, but has not yet documented how issued keys are sent
+with requests. Request a key through its API feedback form before that date and
+update this module when Datamuse supplies the integration details.
+
 Command smoke-test client
 -------------------------
 
@@ -84,22 +99,3 @@ python microirc.py LocalBot.json
 
 The bot and harness should use the same channel; their configured nicknames are
 already distinct because the harness appends `Test` by default.
-
-Steam chat relay
-----------------
-
-The `steamchat` module relays IRC channels through direct messages to a
-dedicated Steam account. Configure its `username` and `password` module options;
-after the first successful login it persists a reusable `loginKey` and machine
-sentry data under the configured data directory.
-
-If Steam Guard is required on the first login, restart once with a current code:
-
-```
-PYBURLYBOT_STEAM_AUTH_CODE=XXXXX python pyBurlyBot.py BurlyBot.json
-```
-
-The code is read only from the process environment and is not written to the
-configuration. Use `steamchat status` on IRC to inspect connection or login
-state. Steam users start a relay with the normal bot command prefix, for example
-`!listen #channel`; `!help` describes the remaining relay commands.

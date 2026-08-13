@@ -1,226 +1,285 @@
 from collections.abc import Callable, Sequence
-from typing import Any
-from threading import Thread
+from dataclasses import dataclass
+from pathlib import Path
 from queue import Queue
-from traceback import print_exc
-
-from os.path import exists, join, isfile
-from os import mkdir
 import sqlite3
+from threading import Thread
+from traceback import format_exc
+from typing import Any
 
 from .types import DatabaseParams
 
-Query = tuple[str, DatabaseParams]
 
+Query = tuple[str, DatabaseParams]
 fetchone = sqlite3.Cursor.fetchone
 fetchall = sqlite3.Cursor.fetchall
 fetchmany = sqlite3.Cursor.fetchmany
 
-### DBManager
-### DBManager managers the global bot database and server-specific databases.
-### To use a specific database for a server you must configure that server to have a unique datafile.
+_STOP = object()
+
+
+@dataclass(slots=True)
+class _Result:
+    value: Any = None
+    error: Exception | None = None
+    worker_traceback: str | None = None
+
+    def unwrap(self) -> Any:
+        if self.error is not None:
+            if self.worker_traceback:
+                self.error.add_note(
+                    "Database worker traceback:\n" + self.worker_traceback
+                )
+            raise self.error
+        return self.value
+
 
 class DBManager:
-	def __init__(self, datadir: str, datafile: str) -> None:
-		self.serverDBMap: dict[str, DBaccess] = {}
-		self.fileDBMap: dict[str, DBaccess] = {}
-		self.mainDB = DBaccess(datadir, datafile)
-		self.datadir = datadir
-		self.datafile = datafile
-		self.managerThread = ManagerThread()
-		self.managerThread.start()
-		self.mainDB.start()
-		self.running = True
-		
-	def query(self, serverlabel: str, q: str, params: DatabaseParams=(),
-		func: Callable[[sqlite3.Cursor], Any] | None=None) -> Any:
-		db = self.managerThread.call(self._getDB, serverlabel)
-		return db.query(q, params, func)
-	
-	def batch(self, serverlabel: str, qs: Sequence[Query]) -> list[list[sqlite3.Row]]:
-		db = self.managerThread.call(self._getDB, serverlabel)
-		return db.batch(qs)
-		
-	def _addServer(self, serverlabel: str, datafile: str) -> None:
-		if not datafile == self.datafile:
-			if serverlabel in self.serverDBMap:
-				#determine if we need to shutdown DB and restart with different file
-				if datafile == self.serverDBMap[serverlabel].datafile:
-					return # exists and is correct file
-				# stop
-				self.serverDBMap[serverlabel].stop()
-			
-			# add new server if datafile isn't already used
-			if datafile in self.fileDBMap:
-				db = self.fileDBMap[datafile]
-				db.servers += 1
-				self.serverDBMap[serverlabel] = db
-			else:
-				db = DBaccess(self.datadir, datafile)
-				self.serverDBMap[serverlabel] = db
-				self.fileDBMap[datafile] = db
-				db.start()
-	
-	def addServer(self, serverlabel: str, datafile: str) -> None:
-		self.managerThread.call(self._addServer, serverlabel, datafile)
-		
-	def _delServer(self, serverlabel: str) -> None:
-		if serverlabel in self.serverDBMap:
-			db = self.serverDBMap[serverlabel]
-			if db.datafile != self.datafile:
-				db.servers -= 1
-				if db.servers < 1:
-					db.stop()
-					del self.fileDBMap[db.datafile]
-				del self.serverDBMap[serverlabel]
-	
-	def delServer(self, serverlabel: str) -> None:
-		self.managerThread.call(self._delServer, serverlabel)
-	
-	def _getDB(self, serverlabel: str) -> DBaccess:
-		return self.serverDBMap.get(serverlabel, self.mainDB)
-		
-	def _shutdown(self) -> None:
-		for db in self.serverDBMap.values():
-			db.stop()
-		self.mainDB.stop()
-	
-	def shutdown(self) -> None:
-		# TODO: probably lock on this so that if you CTRL+C while updaterelaunching 
-		# 	you won't run in to race condition if CTRL+C while shutting down threads
-		if self.running:
-			self.managerThread.call(self._shutdown)
-			self.managerThread.stop()
-			self.running = False # to make it easier to shutdown from multiple pathways
-		
-	#DB helper for easy module use:
-	def dbCheckCreateTable(self, serverlabel: str, tablename: str, createstmt: str) -> bool:
-		if not self.query(serverlabel, '''SELECT name FROM sqlite_master WHERE name=?;''', (tablename,)):
-			self.query(serverlabel, createstmt)
-		return True
-		
-	def _dbcommit(self) -> None:
-		for db in self.serverDBMap.values():
-			db.commit()
-		self.mainDB.commit()
-		
-	def dbcommit(self) -> None:
-		self.managerThread.call(self._dbcommit)
-			
-	
+    """Own database workers and map IRC networks onto database files."""
+
+    def __init__(self, datadir: str, datafile: str) -> None:
+        self.serverDBMap: dict[str, DBaccess] = {}
+        self.fileDBMap: dict[str, DBaccess] = {}
+        self.mainDB = DBaccess(datadir, datafile)
+        self.datadir = datadir
+        self.datafile = datafile
+        self.managerThread = ManagerThread()
+        self.managerThread.start()
+        self.mainDB.start()
+        self.running = True
+
+    def query(
+        self,
+        serverlabel: str,
+        query: str,
+        params: DatabaseParams = (),
+        func: Callable[[sqlite3.Cursor], Any] | None = None,
+    ) -> Any:
+        database = self.managerThread.call(self._getDB, serverlabel)
+        return database.query(query, params, func)
+
+    def batch(
+        self, serverlabel: str, queries: Sequence[Query]
+    ) -> list[list[sqlite3.Row]]:
+        database = self.managerThread.call(self._getDB, serverlabel)
+        return database.batch(queries)
+
+    def _addServer(self, serverlabel: str, datafile: str) -> None:
+        if datafile == self.datafile:
+            old_database = self.serverDBMap.pop(serverlabel, None)
+            if old_database is not None:
+                self._release(old_database)
+            return
+        old_database = self.serverDBMap.get(serverlabel)
+        if old_database is not None and old_database.datafile == datafile:
+            return
+        if old_database is not None:
+            self._release(old_database)
+        database = self.fileDBMap.get(datafile)
+        if database is None:
+            database = DBaccess(self.datadir, datafile)
+            self.fileDBMap[datafile] = database
+            database.start()
+        else:
+            database.servers += 1
+        self.serverDBMap[serverlabel] = database
+
+    def _release(self, database: "DBaccess") -> None:
+        database.servers -= 1
+        if database.servers == 0:
+            database.stop()
+            self.fileDBMap.pop(database.datafile, None)
+
+    def addServer(self, serverlabel: str, datafile: str) -> None:
+        self.managerThread.call(self._addServer, serverlabel, datafile)
+
+    def _delServer(self, serverlabel: str) -> None:
+        database = self.serverDBMap.pop(serverlabel, None)
+        if database is not None:
+            self._release(database)
+
+    def delServer(self, serverlabel: str) -> None:
+        self.managerThread.call(self._delServer, serverlabel)
+
+    def _getDB(self, serverlabel: str) -> "DBaccess":
+        return self.serverDBMap.get(serverlabel, self.mainDB)
+
+    def _shutdown(self) -> None:
+        for database in set(self.serverDBMap.values()):
+            database.stop()
+        self.serverDBMap.clear()
+        self.fileDBMap.clear()
+        self.mainDB.stop()
+
+    def shutdown(self) -> None:
+        if self.running:
+            self.managerThread.call(self._shutdown)
+            self.managerThread.stop()
+            self.running = False
+
+    def dbCheckCreateTable(
+        self, serverlabel: str, tablename: str, createstmt: str
+    ) -> bool:
+        if not self.query(
+            serverlabel,
+            "SELECT name FROM sqlite_master WHERE name=?;",
+            (tablename,),
+        ):
+            self.query(serverlabel, createstmt)
+        return True
+
+    def _dbcommit(self) -> None:
+        for database in set(self.serverDBMap.values()):
+            database.checkpoint()
+        self.mainDB.checkpoint()
+
+    def dbcommit(self) -> None:
+        self.managerThread.call(self._dbcommit)
+
+
 class ManagerThread(Thread):
-	def __init__(self) -> None:
-		super().__init__()
-		self.callQueue: Queue[Any] = Queue()
-		self.name = "ManagerThread"
-	
-	def run(self) -> None:
-		while True:
-			c = self.callQueue.get()
-			if c == "QUIT":
-				break
-			q, f, args, kwargs = c
-			try: ret = f(*args, **kwargs)
-			except Exception as e:
-				ret = e
-			q.put(ret)
-			
-	def call(self, f: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-		q: Queue[Any] = Queue()
-		self.callQueue.put((q, f, args, kwargs))
-		ret = q.get()
-		if isinstance(ret, Exception):
-			raise ret
-		return ret
-		
-	def stop(self) -> None:
-		self.callQueue.put("QUIT")
-		self.join()
+    def __init__(self) -> None:
+        super().__init__(name="ManagerThread")
+        self.callQueue: Queue[Any] = Queue()
+
+    def run(self) -> None:
+        while True:
+            call = self.callQueue.get()
+            if call is _STOP:
+                return
+            result_queue, function, args, kwargs = call
+            try:
+                result = _Result(value=function(*args, **kwargs))
+            except Exception as exc:  # noqa: BLE001 - manager thread boundary
+                result = _Result(error=exc, worker_traceback=format_exc())
+            result_queue.put(result)
+
+    def call(self, function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        if not self.is_alive():
+            raise RuntimeError("Database manager thread is not running.")
+        result_queue: Queue[_Result] = Queue(maxsize=1)
+        self.callQueue.put((result_queue, function, args, kwargs))
+        return result_queue.get().unwrap()
+
+    def stop(self) -> None:
+        if self.is_alive():
+            self.callQueue.put(_STOP)
+            self.join()
 
 
-# how should we deal with commits and stuff, can you even commit with execute? 
-# You can if you change transactional mode. What transactional mode do we want?
 class DBaccess(Thread):
-	def __init__(self, datadir: str, datafile: str) -> None:
-		super().__init__()
-		self.name = "DBaccessThread(%s)" % datafile
-		self.datafile = datafile
-		if not exists(datadir):
-			mkdir(datadir)
-		elif isfile(datadir):
-			raise OSError("datadir should not be file")
-		self.f = join(datadir, self.datafile)
-		self.qq: Queue[Any] = Queue() # QueryQueue, QQ
-		self.servers = 1
-		#just to see if we can open the file/db
-		dbcon = sqlite3.connect(self.f)
-		dbcon.close()
-		
-	def run(self) -> None:
-		dbcon = sqlite3.connect(self.f)
-		dbcon.row_factory = sqlite3.Row
-		
-		while True:
-			query = self.qq.get()
-			try:
-				if query == "STOP":
-					break
-				# TODO: Test commit methods
-				elif query == "COMMIT":
-					dbcon.commit()
-					continue
-				# special batch mode
-				if len(query) == 2:
-					qs, resultq = query
-					for q, params in qs:
-						try: resultq.put(dbcon.execute(q, params).fetchall())
-						except Exception as e: resultq.put(e)
-				else:
-					#func should be something that can work with a cursor object
-					# e.g. sqlite3.Cursor.fetchall
-					query, params, func, resultq = query
-					if func:
-						resultq.put(func(dbcon.execute(query, params)))
-					else:
-						resultq.put(dbcon.execute(query, params).fetchall())
-			except Exception as e:
-				# this is maximum cheating since variables have function scope even if defined in subblock
-				if resultq: resultq.put(e)
-				else: print_exc()
-		dbcon.commit()
-		dbcon.close()
-		
-	def query(self, q: str, params: DatabaseParams=(),
-		func: Callable[[sqlite3.Cursor], Any] | None=None) -> Any:
-		if not self.is_alive():
-			raise RuntimeError("Attempted query on non running (%s)" % self.name)
-		resultq: Queue[Any] = Queue()
-		self.qq.put((q, params, func, resultq))
-		result = resultq.get()
-		if isinstance(result, Exception):
-			raise result
-		return result
-	
-	def batch(self, qs: Sequence[Query]) -> list[list[sqlite3.Row]]:
-		if not self.is_alive():
-			raise RuntimeError("Attempted query on non running (%s)" % self.name)
-		resultq: Queue[Any] = Queue()
-		self.qq.put((qs, resultq))
-		results = []
-		# get all results. probably not needed.
-		for i in range(len(qs)):
-			result = resultq.get()
-			if isinstance(result, Exception):
-				print("Exception with: %s" % str(qs[i]))
-				raise result
-				# TODO: how to handle multiple exceptions?
-			results.append(result)
-		return results
-		
-	def stop(self) -> None:
-		self.qq.put("STOP")
-		print("STOPPING %s" % self.name)
-		self.join()
-		
-	def commit(self) -> None:
-		self.qq.put("COMMIT")
+    """Serialize access to one SQLite connection in a dedicated thread."""
+
+    def __init__(self, datadir: str, datafile: str) -> None:
+        if Path(datafile).is_absolute():
+            raise ValueError("Database file must be relative to datadir.")
+        data_directory = Path(datadir).resolve()
+        data_directory.mkdir(parents=True, exist_ok=True)
+        if not data_directory.is_dir():
+            raise OSError("datadir must be a directory")
+        database_path = (data_directory / datafile).resolve()
+        if not database_path.is_relative_to(data_directory):
+            raise ValueError("Database file escapes datadir.")
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+        database_existed = database_path.exists()
+
+        super().__init__(name="DBaccessThread(%s)" % datafile)
+        self.datafile = datafile
+        self.f = str(database_path)
+        self.qq: Queue[Any] = Queue()
+        self.servers = 1
+        self._stopping = False
+        connection = sqlite3.connect(self.f, timeout=10)
+        try:
+            connection.execute("PRAGMA foreign_keys=ON")
+        finally:
+            connection.close()
+        if not database_existed:
+            database_path.chmod(0o600)
+
+    @staticmethod
+    def _configure(connection: sqlite3.Connection) -> None:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA busy_timeout=10000")
+
+    def run(self) -> None:
+        connection = sqlite3.connect(self.f, timeout=10, isolation_level=None)
+        self._configure(connection)
+        try:
+            while True:
+                work = self.qq.get()
+                if work is _STOP:
+                    return
+                kind, payload, result_queue = work
+                try:
+                    if kind == "batch":
+                        result = self._execute_batch(connection, payload)
+                    elif kind == "checkpoint":
+                        result = connection.execute(
+                            "PRAGMA wal_checkpoint(PASSIVE)"
+                        ).fetchall()
+                    else:
+                        query, params, function = payload
+                        cursor = connection.execute(query, params)
+                        result = function(cursor) if function else cursor.fetchall()
+                    result_queue.put(_Result(value=result))
+                except Exception as exc:  # noqa: BLE001 - database thread boundary
+                    result_queue.put(_Result(error=exc, worker_traceback=format_exc()))
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _execute_batch(
+        connection: sqlite3.Connection, queries: Sequence[Query]
+    ) -> list[list[sqlite3.Row]]:
+        results: list[list[sqlite3.Row]] = []
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            for query, params in queries:
+                results.append(connection.execute(query, params).fetchall())
+            connection.execute("COMMIT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        return results
+
+    def query(
+        self,
+        query: str,
+        params: DatabaseParams = (),
+        func: Callable[[sqlite3.Cursor], Any] | None = None,
+    ) -> Any:
+        self._ensure_running()
+        result_queue: Queue[_Result] = Queue(maxsize=1)
+        self.qq.put(("query", (query, params, func), result_queue))
+        return result_queue.get().unwrap()
+
+    def batch(self, queries: Sequence[Query]) -> list[list[sqlite3.Row]]:
+        self._ensure_running()
+        result_queue: Queue[_Result] = Queue(maxsize=1)
+        self.qq.put(("batch", tuple(queries), result_queue))
+        return result_queue.get().unwrap()
+
+    def checkpoint(self) -> None:
+        self._ensure_running()
+        result_queue: Queue[_Result] = Queue(maxsize=1)
+        self.qq.put(("checkpoint", None, result_queue))
+        result_queue.get().unwrap()
+
+    def _ensure_running(self) -> None:
+        if not self.is_alive() or self._stopping:
+            raise RuntimeError("Attempted query on non-running %s" % self.name)
+
+    def stop(self) -> None:
+        if self.is_alive() and not self._stopping:
+            self._stopping = True
+            self.qq.put(_STOP)
+            print("STOPPING %s" % self.name)
+            self.join()
+
+    def commit(self) -> None:
+        """Compatibility alias: autocommit is active, so checkpoint the WAL."""
+        self.checkpoint()
