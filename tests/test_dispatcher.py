@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 from contextlib import contextmanager
 from importlib import import_module, invalidate_caches
 from pathlib import Path
@@ -7,6 +7,7 @@ import sys
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import TestCase
+from unittest.mock import Mock, patch
 
 from util.dispatcher import Dispatcher
 from util.moduleloader import ModuleRegistry
@@ -75,6 +76,19 @@ def load_dispatcher(settings: Any, registry: Any) -> Any:
 
 
 class DispatcherTest(TestCase):
+    def test_mapped_handlers_are_deferred_out_of_the_reactor_thread(self) -> None:
+        handler = Mock()
+        event = Mock()
+        wrapper = SimpleNamespace(_moduleerr=Mock())
+        deferred = Mock()
+
+        with patch("util.dispatcher.deferToThread", return_value=deferred) as defer:
+            Dispatcher._dispatchreally(handler, event, cast(Any, wrapper), 0)
+
+        handler.assert_not_called()
+        defer.assert_called_once_with(handler, event, wrapper)
+        deferred.addErrback.assert_called_once_with(wrapper._moduleerr)
+
     def test_loads_package_module_and_sorts_mappings_once(self) -> None:
         files = {
             "demo": (

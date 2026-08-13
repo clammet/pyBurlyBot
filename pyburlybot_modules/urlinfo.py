@@ -3,7 +3,7 @@ from util.types import BotLike, DatabaseQuery
 # urlinfo module
 
 from util import Mapping, fetchone, URLREGEX
-from util.http import HTTPError, HTTPClient
+from util.http import HTTPError, http
 from re import compile as recompile, IGNORECASE, DOTALL
 
 from html import unescape
@@ -11,7 +11,6 @@ from html import unescape
 # (code - reason) content-type, encoding, size, serversoftware, redirect
 HEAD_RPL = "(%s - %s) %s, %s%s bytes, %s%s"
 TITLE_REGEX = recompile("<title>(.*?)</title>", IGNORECASE | DOTALL)
-METADATA_HTTP = HTTPClient(max_bytes=64 * 1024)
 
 
 def seen_link(event: Event, bot: BotLike) -> None:
@@ -57,7 +56,7 @@ def headers(event: Event, bot: BotLike) -> None:
             url = "http://" + url
 
     try:
-        resp = METADATA_HTTP.head(url)
+        resp = http.head(url)
     except (HTTPError, TimeoutError) as exc:
         return bot.say("Couldn't retrieve headers: %s" % exc)
     h = resp.headers
@@ -84,7 +83,7 @@ def title(event: Event, bot: BotLike) -> None:
             url = "http://" + url
 
     try:
-        resp = METADATA_HTTP.get(url)
+        resp = http.get(url)
     except (HTTPError, TimeoutError) as exc:
         return bot.say("Couldn't retrieve title: %s" % exc)
     # only if content-type is html though

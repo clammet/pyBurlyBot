@@ -334,6 +334,8 @@ class Dispatcher:
     ) -> None:
         if debug >= 2:
             print("DISPATCHING TO: %r" % func)
+        # Module handlers may perform blocking HTTP or parsing. Keep every mapped
+        # callback behind the same worker boundary so the reactor remains responsive.
         d = deferToThread(func, event, cast(BotLike, cont_or_wrap))
         # add errback
         d.addErrback(cont_or_wrap._moduleerr)

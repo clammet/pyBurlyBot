@@ -7,19 +7,22 @@ from unittest.mock import Mock, patch
 
 from pyburlybot_modules.gdq import (
     GDQScheduleError,
+    REQUEST_TIMEOUT as SCHEDULE_TIMEOUT,
+    SCHEDULE_HTTP,
     ScheduleRun,
     gdq,
     parse_schedule_page,
     schedule_status,
 )
 from pyburlybot_modules.gdqdonate import (
+    DONATION_HTTP,
     DONATION_API_URL,
     REQUEST_HEADERS,
     REQUEST_TIMEOUT,
     gdqdonate,
 )
 from util.event import Event
-from util.http import HTTPError
+from util.http import DEFAULT_MAX_BYTES, HTTPError
 
 
 def flight_script(payload: str) -> str:
@@ -27,6 +30,10 @@ def flight_script(payload: str) -> str:
 
 
 class GDQTest(TestCase):
+    def test_schedule_fetch_uses_shared_response_limit(self) -> None:
+        self.assertEqual(SCHEDULE_HTTP.timeout, SCHEDULE_TIMEOUT)
+        self.assertEqual(SCHEDULE_HTTP.max_bytes, DEFAULT_MAX_BYTES)
+
     def test_parses_fragmented_nextjs_schedule_data(self) -> None:
         record = (
             "1a:"
@@ -97,12 +104,12 @@ class GDQDonateTest(TestCase):
         response = Mock(text="  donation comment  ")
         client = Mock()
         client.get.return_value = response
-        client_factory = Mock(return_value=client)
 
-        with patch.dict(gdqdonate.__globals__, {"HTTPClient": client_factory}):
+        with patch.dict(gdqdonate.__globals__, {"DONATION_HTTP": client}):
             gdqdonate(event, bot)
 
-        client_factory.assert_called_once_with(timeout=REQUEST_TIMEOUT)
+        self.assertEqual(DONATION_HTTP.timeout, REQUEST_TIMEOUT)
+        self.assertEqual(DONATION_HTTP.max_bytes, DEFAULT_MAX_BYTES)
         client.get.assert_called_once_with(DONATION_API_URL, headers=REQUEST_HEADERS)
         bot.say.assert_called_once_with("donation comment")
 
@@ -111,9 +118,8 @@ class GDQDonateTest(TestCase):
         bot = Mock()
         client = Mock()
         client.get.side_effect = HTTPError("offline")
-        client_factory = Mock(return_value=client)
 
-        with patch.dict(gdqdonate.__globals__, {"HTTPClient": client_factory}):
+        with patch.dict(gdqdonate.__globals__, {"DONATION_HTTP": client}):
             gdqdonate(event, bot)
 
         bot.say.assert_called_once_with(

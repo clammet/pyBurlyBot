@@ -15,6 +15,21 @@ mandatory on 1 January 2027, but has not yet documented how issued keys are sent
 with requests. Request a key through its API feedback form before that date and
 update this module when Datamuse supplies the integration details.
 
+Outbound HTTP
+-------------
+
+Modules share the synchronous client in `util/http.py`. Mapped event and command
+handlers run in Twisted's worker pool, as do timer callbacks, so HTTP and parsing
+work must stay behind those dispatcher/timer boundaries rather than running
+directly in the reactor thread.
+
+Use the shared `http` client for outbound requests. All shared HTTP users stream
+responses under the same 2 MiB byte ceiling and a single request deadline. The
+client rejects unsafe URL forms, validates every DNS answer, connects only to
+those validated addresses with failover, revalidates redirects, strips
+credentials on cross-origin redirects, and retains the original hostname for
+HTTP Host and TLS verification.
+
 Command smoke-test client
 -------------------------
 

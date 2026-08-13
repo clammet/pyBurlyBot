@@ -1,10 +1,22 @@
-from collections.abc import Mapping
+"""Synchronous, SSRF-resistant HTTP for dispatcher and timer worker callbacks."""
+
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from errno import ENOPROTOOPT
 from http.client import HTTPConnection, HTTPResponse, HTTPSConnection
 from ipaddress import ip_address
 from json import JSONDecodeError, loads
-from socket import SOCK_STREAM, create_connection, getaddrinfo
-from ssl import create_default_context
+from socket import (
+    IPPROTO_TCP,
+    SOCK_STREAM,
+    TCP_NODELAY,
+    AddressFamily,
+    SocketKind,
+    getaddrinfo,
+    socket,
+)
+from ssl import SSLContext, create_default_context
+from sys import audit
 from time import monotonic
 from typing import Any
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
@@ -74,50 +86,173 @@ class Response:
             ) from exc
 
 
-def _validated_address(hostname: str, port: int, allow_private: bool) -> str:
+@dataclass(frozen=True, slots=True)
+class ResolvedAddress:
+    """A socket address returned by, and pinned to, one DNS validation."""
+
+    family: AddressFamily
+    socket_type: SocketKind
+    protocol: int
+    sockaddr: tuple[Any, ...]
+
+    @property
+    def ip(self) -> str:
+        return str(self.sockaddr[0])
+
+
+def _validated_addresses(
+    hostname: str, port: int, allow_private: bool
+) -> tuple[ResolvedAddress, ...]:
     try:
-        addresses = {
-            str(entry[4][0]) for entry in getaddrinfo(hostname, port, type=SOCK_STREAM)
-        }
+        answers = getaddrinfo(hostname, port, type=SOCK_STREAM)
     except OSError as exc:
         raise HTTPError("Could not resolve %s: %s" % (hostname, exc)) from exc
+
+    addresses: list[ResolvedAddress] = []
+    seen: set[tuple[AddressFamily, SocketKind, int, tuple[Any, ...]]] = set()
+    for family, socket_type, protocol, _canonical_name, sockaddr in answers:
+        normalized_sockaddr = tuple(sockaddr)
+        key = (family, socket_type, protocol, normalized_sockaddr)
+        if key in seen:
+            continue
+        seen.add(key)
+        addresses.append(
+            ResolvedAddress(family, socket_type, protocol, normalized_sockaddr)
+        )
     if not addresses:
         raise HTTPError("No address found for %s" % hostname)
 
     unsafe = sorted(
-        address
+        address.ip
         for address in addresses
-        if not ip_address(address.split("%", 1)[0]).is_global
+        if not ip_address(address.ip.split("%", 1)[0]).is_global
     )
     if unsafe and not allow_private:
         raise UnsafeAddressError(
             "Refusing non-public address for %s: %s" % (hostname, ", ".join(unsafe))
         )
-    return sorted(addresses)[0]
+    return tuple(addresses)
+
+
+class _ValidatedAddressConnector:
+    """Connect only to the exact addresses approved by DNS validation."""
+
+    def __init__(
+        self,
+        addresses: tuple[ResolvedAddress, ...],
+        deadline: float,
+    ) -> None:
+        self.addresses = addresses
+        self.deadline = deadline
+
+    def connect(
+        self,
+        prepare_socket: Callable[[socket], socket] | None = None,
+    ) -> socket:
+        failures: list[tuple[ResolvedAddress, OSError]] = []
+        for index, address in enumerate(self.addresses):
+            remaining = self.deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError("HTTP connection deadline expired")
+
+            # Give every validated address an opportunity within the one overall
+            # deadline. A successful connection receives the full time remaining
+            # for request and response I/O below.
+            attempts_left = len(self.addresses) - index
+            attempt_timeout = remaining / attempts_left
+            candidate: socket | None = None
+            try:
+                candidate = socket(
+                    address.family, address.socket_type, address.protocol
+                )
+                candidate.settimeout(attempt_timeout)
+                candidate.connect(address.sockaddr)
+                try:
+                    candidate.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
+                except OSError as exc:
+                    if exc.errno != ENOPROTOOPT:
+                        raise
+                if prepare_socket is not None:
+                    candidate = prepare_socket(candidate)
+                remaining = self.deadline - monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("HTTP connection deadline expired")
+                candidate.settimeout(remaining)
+                return candidate
+            except OSError as exc:
+                if candidate is not None:
+                    candidate.close()
+                failures.append((address, exc))
+
+        if monotonic() >= self.deadline:
+            raise TimeoutError("HTTP connection deadline expired")
+        details = "; ".join(
+            "%s: %s" % (address.ip, error) for address, error in failures
+        )
+        raise OSError("all validated addresses failed (%s)" % details) from failures[
+            -1
+        ][1]
+
+
+class _PinnedHTTPConnection(HTTPConnection):
+    def __init__(
+        self,
+        hostname: str,
+        port: int,
+        connector: _ValidatedAddressConnector,
+        timeout: float,
+    ) -> None:
+        super().__init__(hostname, port, timeout=timeout)
+        self._validated_connector = connector
+
+    def connect(self) -> None:
+        audit("http.client.connect", self, self.host, self.port)
+        self.sock = self._validated_connector.connect()
+
+
+class _PinnedHTTPSConnection(HTTPSConnection):
+    def __init__(
+        self,
+        hostname: str,
+        port: int,
+        connector: _ValidatedAddressConnector,
+        timeout: float,
+        context: SSLContext,
+    ) -> None:
+        super().__init__(hostname, port, timeout=timeout, context=context)
+        self._validated_connector = connector
+        self._tls_context = context
+        self._tls_hostname = hostname
+
+    def connect(self) -> None:
+        audit("http.client.connect", self, self.host, self.port)
+        self.sock = self._validated_connector.connect(
+            lambda candidate: self._tls_context.wrap_socket(
+                candidate, server_hostname=self._tls_hostname
+            )
+        )
 
 
 def _connection(
     scheme: str,
     hostname: str,
     port: int,
-    address: str,
-    timeout: float,
+    addresses: tuple[ResolvedAddress, ...],
+    deadline: float,
 ) -> HTTPConnection:
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        raise HTTPTimeoutError("HTTP connection deadline expired")
+    connector = _ValidatedAddressConnector(addresses, deadline)
     if scheme == "https":
-        connection: HTTPConnection = HTTPSConnection(
-            hostname, port, timeout=timeout, context=create_default_context()
+        return _PinnedHTTPSConnection(
+            hostname,
+            port,
+            connector,
+            remaining,
+            create_default_context(),
         )
-    else:
-        connection = HTTPConnection(hostname, port, timeout=timeout)
-
-    # Pin the actual socket to the address we validated while retaining the
-    # original hostname for the Host header and HTTPS SNI/certificate checks.
-    connection._create_connection = (  # type: ignore[attr-defined,method-assign]
-        lambda _target, socket_timeout, source_address=None: create_connection(
-            (address, port), socket_timeout, source_address
-        )
-    )
-    return connection
+    return _PinnedHTTPConnection(hostname, port, connector, remaining)
 
 
 def _read_limited(
@@ -208,8 +343,8 @@ class HTTPClient:
                 raise HTTPTimeoutError(
                     "HTTP request exceeded %.1f seconds" % self.timeout
                 )
-            address = _validated_address(hostname, port, self.allow_private)
-            connection = _connection(scheme, hostname, port, address, remaining)
+            addresses = _validated_addresses(hostname, port, self.allow_private)
+            connection = _connection(scheme, hostname, port, addresses, deadline)
             path = urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
             try:
                 connection.request(method, path, body=body, headers=request_headers)

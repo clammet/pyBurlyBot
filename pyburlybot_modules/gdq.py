@@ -22,6 +22,7 @@ TIMER_NAME = "gdq_timer"
 LOOP_INTERVAL = 120.0
 REPEAT_NOTIFY_TIME = 60 * 30
 FORMAT = "{0}, GAME ({1}) IS AVAILABLE."
+SCHEDULE_HTTP = HTTPClient(timeout=REQUEST_TIMEOUT)
 
 
 class GDQScheduleError(RuntimeError):
@@ -102,7 +103,7 @@ def parse_schedule_page(content: bytes | str) -> tuple[ScheduleRun, ...]:
 
 def fetch_schedule() -> tuple[ScheduleRun, ...]:
     try:
-        content = HTTPClient(timeout=REQUEST_TIMEOUT).get(GDQ_SCHEDULE_URL).body
+        content = SCHEDULE_HTTP.get(GDQ_SCHEDULE_URL).body
     except (HTTPError, TimeoutError) as exc:
         raise GDQScheduleError(f"request failed: {exc}") from exc
     try:

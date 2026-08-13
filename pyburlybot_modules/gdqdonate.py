@@ -10,14 +10,13 @@ REQUEST_TIMEOUT = 15
 REQUEST_HEADERS = {
     "User-Agent": "pyBurlyBot/1.0 (+https://github.com/Clam-/pyBurlyBot)"
 }
+DONATION_HTTP = HTTPClient(timeout=REQUEST_TIMEOUT)
 
 
 def gdqdonate(event: Event, bot: BotLike) -> None:
     """donate"""
     try:
-        response = HTTPClient(timeout=REQUEST_TIMEOUT).get(
-            DONATION_API_URL, headers=REQUEST_HEADERS
-        )
+        response = DONATION_HTTP.get(DONATION_API_URL, headers=REQUEST_HEADERS)
     except (HTTPError, TimeoutError) as exc:
         print(f"GDQ donation feed unavailable: {exc}")
         bot.say("The GDQ donation feed is temporarily unavailable. Try again later.")
