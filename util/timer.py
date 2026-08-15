@@ -42,7 +42,10 @@ class Timer:
         self.reps = reps
         self.interval = interval
         self.lc = LoopingCall(Timers.runTimer, self)
-        self.lc.start(interval, startnow)
+        self._startnow = startnow
+
+    def start(self) -> None:
+        self.lc.start(self.interval, self._startnow)
 
     def restart(self) -> None:
         try:
@@ -64,6 +67,14 @@ class TimerInfo:
 class Timers:
     timers: ClassVar[dict[str, Timer]] = {}
 
+    # run f in the reactor thread; blockingCallFromThread would deadlock if
+    # invoked from the reactor thread itself, so call directly in that case
+    @classmethod
+    def _callInReactor(cls, f: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        if current_thread().name == "MainThread":
+            return f(*args, **kwargs)
+        return blockingCallFromThread(reactor, f, *args, **kwargs)
+
     @classmethod
     def _addTimer(
         cls,
@@ -78,7 +89,11 @@ class Timers:
         if name in cls.timers:
             raise TimerExists("Timer (%s) already exists." % name)
         else:
-            cls.timers[name] = Timer(name, interval, f, reps, startnow, *args, **kwargs)
+            timer = Timer(name, interval, f, reps, startnow, *args, **kwargs)
+            # register before starting: startnow=True runs the timer callback
+            # synchronously, which must be able to see (and expire) this entry
+            cls.timers[name] = timer
+            timer.start()
             return True
 
     # _timers are for internal use only
@@ -97,20 +112,8 @@ class Timers:
         if not isinstance(name, str) or name.startswith("_"):
             raise TimerInvalidName("Invalid name (%s)." % name)
         # force interval and rep into float and int respectively.
-        if current_thread().name == "MainThread":
-            return cls._addTimer(
-                name, float(interval), f, int(reps), startnow, *args, **kwargs
-            )
-        return blockingCallFromThread(
-            reactor,
-            cls._addTimer,
-            name,
-            float(interval),
-            f,
-            int(reps),
-            startnow,
-            *args,
-            **kwargs,
+        return cls._callInReactor(
+            cls._addTimer, name, float(interval), f, int(reps), startnow, *args, **kwargs
         )
 
     @classmethod
@@ -130,11 +133,7 @@ class Timers:
     def deltimer(cls, name: str) -> bool:
         if not isinstance(name, str) or name.startswith("_"):
             raise TimerInvalidName("Invalid name (%s)." % name)
-
-        if current_thread().name == "MainThread":
-            return cls._deltimer(name)
-        else:
-            return blockingCallFromThread(reactor, cls._deltimer, name)
+        return cls._callInReactor(cls._deltimer, name)
 
     @classmethod
     def _restarttimer(cls, name: str) -> None:
@@ -147,7 +146,7 @@ class Timers:
     def restarttimer(cls, name: str) -> None:
         if not isinstance(name, str) or name.startswith("_"):
             raise TimerInvalidName("Invalid name (%s)." % name)
-        return blockingCallFromThread(reactor, cls._restarttimer, name)
+        return cls._callInReactor(cls._restarttimer, name)
 
     # run the desired function in a thread but manage the timer in the reactor
     @classmethod
@@ -156,8 +155,8 @@ class Timers:
         if timerobj.reps > 0:
             timerobj.reps -= 1
             if timerobj.reps == 0:
-                cls.timers[timerobj.name].lc.stop()
-                del cls.timers[timerobj.name]
+                timerobj.lc.stop()
+                cls.timers.pop(timerobj.name, None)
 
     @classmethod
     def _stopall(cls) -> None:
@@ -176,7 +175,7 @@ class Timers:
 
     @classmethod
     def getTimers(cls) -> dict[str, TimerInfo]:
-        return blockingCallFromThread(reactor, cls._getTimers)
+        return cls._callInReactor(cls._getTimers)
 
     @classmethod
     def _delPrefix(cls, prefix: str) -> None:
@@ -190,4 +189,4 @@ class Timers:
 
     @classmethod
     def delPrefix(cls, prefix: str) -> None:
-        return blockingCallFromThread(reactor, cls._delPrefix, prefix)
+        return cls._callInReactor(cls._delPrefix, prefix)

@@ -26,6 +26,7 @@ DEFAULT_TEMPLATE = PROJECT_ROOT / "microirc_harness.conf"
 DEFAULT_SECRETS_CONFIG = PROJECT_ROOT / "BurlyBot.json"
 API_CREDENTIAL_OPTIONS = frozenset({"API_KEY", "CSE_ID"})
 EXCLUDED_HARNESS_MODULES: Mapping[str, str] = {
+    "remind_common": "shared helper library for tell/alert, not a bot module",
     "updaterelaunch": "mutates and restarts the source checkout",
 }
 
@@ -332,7 +333,7 @@ def run_harness(args: argparse.Namespace) -> int:
         runtime_dir = Path(temp_dir)
         try:
             runtime_config_path = write_runtime_config(config, runtime_dir, target)
-        except HarnessError, OSError, TypeError, ValueError:
+        except (HarnessError, OSError, TypeError, ValueError):
             server.server_close()
             raise
         if imported_credentials:

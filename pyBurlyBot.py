@@ -75,8 +75,6 @@ if __name__ == "__main__":
 
     # create-config
     if args.createconfig:
-        if not args.config:
-            args.config = "BurlyBot.json"
         print("Creating configuration...")
         if exists(args.config) and not args.force:
             print(

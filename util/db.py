@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from queue import Queue
 import sqlite3
-from threading import Thread
+from threading import Lock, Thread
 from traceback import format_exc
 from typing import Any
 
@@ -189,12 +189,10 @@ class DBaccess(Thread):
         self.qq: Queue[Any] = Queue()
         self.servers = 1
         self._stopping = False
-        connection = sqlite3.connect(self.f, timeout=10)
-        try:
-            connection.execute("PRAGMA foreign_keys=ON")
-        finally:
-            connection.close()
+        self._submit_lock = Lock()
         if not database_existed:
+            # create the file so it can be locked down before any data is written
+            sqlite3.connect(self.f, timeout=10).close()
             database_path.chmod(0o600)
 
     @staticmethod
@@ -246,39 +244,43 @@ class DBaccess(Thread):
             raise
         return results
 
+    def _submit(self, work: Any) -> None:
+        # the lock makes the running-check and enqueue atomic with stop(), so
+        # work can never land behind _STOP (where it would block its caller
+        # forever waiting on a result the worker will never produce)
+        with self._submit_lock:
+            if not self.is_alive() or self._stopping:
+                raise RuntimeError("Attempted query on non-running %s" % self.name)
+            self.qq.put(work)
+
     def query(
         self,
         query: str,
         params: DatabaseParams = (),
         func: Callable[[sqlite3.Cursor], Any] | None = None,
     ) -> Any:
-        self._ensure_running()
         result_queue: Queue[_Result] = Queue(maxsize=1)
-        self.qq.put(("query", (query, params, func), result_queue))
+        self._submit(("query", (query, params, func), result_queue))
         return result_queue.get().unwrap()
 
     def batch(self, queries: Sequence[Query]) -> list[list[sqlite3.Row]]:
-        self._ensure_running()
         result_queue: Queue[_Result] = Queue(maxsize=1)
-        self.qq.put(("batch", tuple(queries), result_queue))
+        self._submit(("batch", tuple(queries), result_queue))
         return result_queue.get().unwrap()
 
     def checkpoint(self) -> None:
-        self._ensure_running()
         result_queue: Queue[_Result] = Queue(maxsize=1)
-        self.qq.put(("checkpoint", None, result_queue))
+        self._submit(("checkpoint", None, result_queue))
         result_queue.get().unwrap()
 
-    def _ensure_running(self) -> None:
-        if not self.is_alive() or self._stopping:
-            raise RuntimeError("Attempted query on non-running %s" % self.name)
-
     def stop(self) -> None:
-        if self.is_alive() and not self._stopping:
+        with self._submit_lock:
+            if not self.is_alive() or self._stopping:
+                return
             self._stopping = True
             self.qq.put(_STOP)
-            print("STOPPING %s" % self.name)
-            self.join()
+        print("STOPPING %s" % self.name)
+        self.join()
 
     def commit(self) -> None:
         """Compatibility alias: autocommit is active, so checkpoint the WAL."""

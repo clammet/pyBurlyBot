@@ -145,7 +145,12 @@ class BurlyBot(IRCClient, TimeoutMixin):
         if len(encoded) > 510:
             line = encoded[:510].decode(self.settings.encoding, "ignore")
         t = time()
-        if self._lastmsg + 1 < t:
+        if self._dqueue:
+            # lines already queued: append so output order is preserved
+            self._dqueue.append(line)
+            if not self._lastCL:
+                self._lastCL = reactor.callLater(1.0, self._sendLine)
+        elif self._lastmsg + 1 < t:
             # if message hasn't been sent for 1 seconds, go for it
             self._lines += 1
             self._reallySendLine(line)
@@ -543,6 +548,8 @@ class BurlyBot(IRCClient, TimeoutMixin):
         user = prefix
         channel = params[0]
         message = params[-1]
+        if not message:
+            return
 
         if message[0] == X_DELIM:
             m = ctcpExtract(message)
@@ -864,7 +871,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
             self.state._addexcepts(channel, exceptlist)
         self.dispatch(
             self,
-            "endOfBanList",
+            "endOfExceptList",
             prefix=prefix,
             params=params,
             target=channel,
@@ -937,16 +944,15 @@ class BurlyBot(IRCClient, TimeoutMixin):
             # These will either be numeric or symbolic, so we also dispatch the
             # corresponding symbolic/numeric event when possible for ease of use
             self.dispatch(self, command, prefix=prefix, params=params)
+            # lineReceived already converted known numerics to symbolic, so
+            # command here is symbolic (or an unknown numeric): dispatch the
+            # numeric twin when one exists
             if command.upper() in symbolic_to_numeric:
                 self.dispatch(
                     self,
                     symbolic_to_numeric[command.upper()],
                     prefix=prefix,
                     params=params,
-                )
-            elif command in numeric_to_symbolic:
-                self.dispatch(
-                    self, numeric_to_symbolic[command], prefix=prefix, params=params
                 )
             if method is None:
                 self.irc_unknown(prefix, command, params)
@@ -956,16 +962,15 @@ class BurlyBot(IRCClient, TimeoutMixin):
             line = line.decode(self.settings.encoding, "replace")
         if self.debug >= 3:
             print("INCOMING LINE: %s" % line)
-        line = lowDequote(line)
-        if isinstance(line, bytes):
-            line = line.decode(self.settings.encoding, "replace")
+        # lowDequote is annotated str | bytes, but str in gives str out
+        line = cast(str, lowDequote(line))
         try:
             self._message_tags, untagged_line = _parse_message_tags(line)
             prefix, command, params = parsemsg(untagged_line)
             if command in numeric_to_symbolic:
                 command = numeric_to_symbolic[command]
             self.handleCommand(command, prefix, params)
-        except IRCBadMessage, ValueError:
+        except (IRCBadMessage, ValueError):
             self.badMessage(line, *exc_info())
         finally:
             self._message_tags = {}
@@ -1117,14 +1122,13 @@ class BurlyBot(IRCClient, TimeoutMixin):
     # suffix after iterating. When to reset the iteration? At the moment it does it on connection
     # should probably make a reactor.callLater, and cancel it on disconnect or something.
     def alterCollidedNick(self, nickname: str) -> str:
-        if self.settings.altnicks:
-            if self.altindex < len(self.settings.altnicks):
-                s = self.settings.altnicks[self.altindex]
-                self.altindex += 1
-                return s
-            elif nickname != self.settings.nick:
-                return self.settings.nick
-        return nickname + self.settings.nicksuffix
+        if self.settings.altnicks and self.altindex < len(self.settings.altnicks):
+            s = self.settings.altnicks[self.altindex]
+            self.altindex += 1
+            return s
+        # altnicks exhausted: grow a suffix so every attempt is a fresh nick
+        # (returning settings.nick here ping-pongs between two taken nicks)
+        return nickname + (self.settings.nicksuffix or "_")
 
     def irc_unknown(self, prefix: str, command: str, params: list[str]) -> None:
         if self.settings.debug:
@@ -1294,7 +1298,8 @@ class BurlyBot(IRCClient, TimeoutMixin):
             else:
                 # round 2, even divide
                 if joinsep is not None:
-                    segmentlength = floor(avail / ls) - ((ls - 1) * lj)
+                    # reserve total joinsep overhead once, then divide the rest
+                    segmentlength = max(0, floor((avail - (ls - 1) * lj) / ls))
                 else:
                     segmentlength = floor(avail / ls)
                 if isinstance(strins, tuple):
@@ -1364,12 +1369,16 @@ class BurlyBot(IRCClient, TimeoutMixin):
         self._invitelist = {}
         self._accounts: dict[str, str] = {}
         self._message_tags = {}
+        self.altindex = 0
+        # arm the inactivity timeout; resetTimeout in dataReceived only reschedules
+        self.setTimeout(self.timeOut)
         IRCClient.connectionMade(self)
         # TODO: I think this should be on "signedOn()" just in case part of the signon is causing instant disconnect
         # reset connection factory delay:
         self.factory.resetDelay()
 
     def connectionLost(self, reason: Failure) -> None:  # type: ignore[override]
+        self.setTimeout(None)
         IRCClient.connectionLost(self, reason)
         self.container._setBotinst(None)
         if self.state:

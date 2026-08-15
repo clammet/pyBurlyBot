@@ -94,7 +94,8 @@ def location(event: Event, bot: BotLike) -> None:
     users_module = bot.getModule("users")
     if not target:
         user = users_module.get_username(bot, event.nick)
-        loc = getlocation(bot.dbQuery, user)
+        if not user:
+            return bot.say("Haven't seen you before, try again.")
         return _display_location(bot, user)
     else:
         user = users_module.get_username(bot, target)

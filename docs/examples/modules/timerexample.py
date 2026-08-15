@@ -61,7 +61,7 @@ def timers(event: Event, bot: BotLike) -> None:
         try:
             Timers.deltimer(args)
             bot.say("Timer stopped (%s)" % args)
-        except TimerNotFound, TimerInvalidName:
+        except (TimerNotFound, TimerInvalidName):
             bot.say("Can't stop (%s) because timer not found or internal timer." % args)
 
 

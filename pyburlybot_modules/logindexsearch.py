@@ -50,7 +50,6 @@ OPTIONS = {
 REQUIRES = ("users",)
 
 SOURCE_REGEX = re_compile(r".*\bsource:.")
-NICK_REGEX = re_compile(r".*\bnick:(.+)/b")
 
 BUFFERLINES = 100
 # Should maybe store a timestamp in IndexProxy.waiting so we can use the following to check if there's any stale threads hanging.
@@ -94,7 +93,7 @@ class IndexProcess(Process):
             self.searcher = self.searcher.refresh()
 
     def _dumpBuffer(self, buffer: deque[LogEntry]) -> None:
-        id = self.ix.reader().doc_count()
+        id = self.ix.doc_count()
         with self.ix.writer() as iw:
             # dump buffer
             while True:
@@ -253,7 +252,7 @@ class IndexProxy(Thread):
             while procpipe.poll():
                 try:
                     tid, result = procpipe.recv()
-                except EOFError, OSError:
+                except (EOFError, OSError):
                     for queue in self.waiting.values():
                         queue.put(None)
                     self.waiting.clear()

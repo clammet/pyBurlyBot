@@ -45,43 +45,32 @@ MIRC_COLORS = {
 }
 
 
+def _colornum(color: str | int) -> int:
+    try:
+        num = int(color)
+    except ValueError:
+        num = MIRC_COLORS.get(str(color).lower(), -1)
+    if num < 0 or num > 15:
+        raise ValueError("Invalid color:  %s" % color)
+    return num
+
+
 def colorize(s: str, fg: str | int | None = None, bg: str | int | None = None) -> str:
-    if fg:
-        fg_orig = fg
-        try:
-            fg_num = int(fg)
-        except ValueError:
-            try:
-                fg_num = MIRC_COLORS[str(fg).lower()]
-            except ValueError, KeyError:
-                fg_num = -1
-        finally:
-            if fg_num < 0 or fg_num > 15:
-                raise ValueError("Invalid color:  %s" % fg_orig)
-        fg = fg_num
-    if bg:
-        bg_orig = bg
-        try:
-            bg_num = int(bg)
-        except ValueError:
-            try:
-                bg_num = MIRC_COLORS[str(bg).lower()]
-            except ValueError, KeyError:
-                bg_num = -1
-        finally:
-            if bg_num < 0 or bg_num > 15:
-                raise ValueError("Invalid color:  %s" % bg_orig)
-        bg = bg_num
-    if fg and bg:
+    # `is not None` so color 0 (white) is a valid value
+    fg = _colornum(fg) if fg is not None else None
+    bg = _colornum(bg) if bg is not None else None
+    if fg is not None and bg is not None:
         color_s = "%s,%s" % (fg, bg)
-    elif fg:
+    elif fg is not None:
         color_s = "%s" % fg
-    elif bg:
+    elif bg is not None:
         # mIRC's behavior here is to honor the BG color if the FG color is any
         # (valid or not) 2 digit number.  If the FG color is invalid the BG
         # color will display without modifying the FG color, oddly.
         # So we'll just use 99 in these cases to avoid modifying the FG color
         color_s = "99,%s" % bg
+    else:
+        return s
     return MIRC_CONTROL_COLOR + color_s + s + MIRC_CONTROL_COLOR
 
 

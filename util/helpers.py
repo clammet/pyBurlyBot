@@ -5,7 +5,7 @@ from typing import Any, TextIO, cast
 # timehelpers.py
 from datetime import UTC, timedelta, datetime
 from time import time
-from calendar import timegm
+from calendar import day_abbr, day_name, timegm
 from codecs import lookup
 from operator import itemgetter
 from shlex import shlex
@@ -13,17 +13,8 @@ from inspect import getdoc
 import re
 from fnmatch import fnmatchcase
 
-WDAY_MAP = {
-    0: "Monday",
-    1: "Tuesday",
-    2: "Wednesday",
-    3: "Thursday",
-    4: "Friday",
-    5: "Saturday",
-    6: "Sunday",
-}
-
-WDAY_SHORTMAP = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
+WDAY_MAP = dict(enumerate(day_name))
+WDAY_SHORTMAP = dict(enumerate(day_abbr))
 
 
 # adapted http://stackoverflow.com/a/2119512
@@ -111,13 +102,9 @@ def processHostmask(h: str | None) -> tuple[str | None, str | None, str | None]:
 ENCODINGS = (
     "utf-8",
     "sjis",
+    # latin_1 decodes any byte sequence, so it acts as the catch-all;
+    # codecs listed after it would never be tried
     "latin_1",
-    "gb2312",
-    "cp1251",
-    "cp1252",
-    "gbk",
-    "cp1256",
-    "euc_jp",
 )
 
 
@@ -131,14 +118,13 @@ def coerceToUnicode(s: Any, enc: str | None = None) -> str:
             return s.decode(enc)
         except UnicodeDecodeError:
             pass
-    for enc in ENCODINGS:
+    for fallback_enc in ENCODINGS:
         try:
-            return s.decode(enc)
+            return s.decode(fallback_enc)
         except UnicodeDecodeError:
             continue
-    s = s.decode("utf-8", "replace")
-    print("Warning, unknown coded character encounted in %s" % s)
-    return s
+    # unreachable while latin_1 is in ENCODINGS; kept as a safety net
+    return s.decode("utf-8", "replace")
 
 
 def processListReply(
@@ -180,7 +166,7 @@ class PrefixMap:
                 voicecmds.append(cmd)
             if p == "@":
                 foundop = True
-            elif p == "v":
+            elif p == "+":
                 foundvoice = True
             usermodemap[cmd] = p
 
@@ -379,7 +365,7 @@ def parseDateTime(
         s = s[2:].strip()
         pd = None
         for index, dformat in enumerate(
-            ("%Y/%m/%d", "%m/%d", "%dth", "%dst", "%snd", "%drd", "%H:%M", "%I%p")
+            ("%Y/%m/%d", "%m/%d", "%dth", "%dst", "%dnd", "%drd", "%H:%M", "%I%p")
         ):
             try:
                 pd = datetime.strptime(s, dformat)  # noqa: DTZ007 - partial date, combined below

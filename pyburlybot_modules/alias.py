@@ -292,9 +292,6 @@ def aliasuser(bot: BotLike, arg1: str, arg2: str, source: str) -> None:
     #             would assume fixes it, but it won't because the plan won't get executed. Complicated example.
     target = target_user
 
-    if source == target:
-        return bot.say("But %s is already %s." % (arg1, arg2))
-
     # see comments just above
     if target:
         users_module._rename_user(bot.network, target, source)

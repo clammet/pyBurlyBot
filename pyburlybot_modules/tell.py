@@ -1,13 +1,10 @@
-from collections.abc import Iterable
-from typing import Any
 from util.event import Event
 from util.types import BotLike
 from util.db import Query
 
 # tell module
-from time import gmtime, localtime, struct_time
+from time import gmtime
 from calendar import timegm  # silly python... I just want UTC seconds
-from collections import deque
 
 from util import (
     Mapping,
@@ -16,9 +13,12 @@ from util import (
     distance_of_time_in_words,
     pastehelper,
     english_list,
-    parseDateTime,
 )
-from util.settings import ConfigException
+from pyburlybot_modules.remind_common import (
+    generate_users,
+    parse_remind_args,
+    resolve_user_time,
+)
 
 REQUIRES = ("users",)
 
@@ -38,76 +38,6 @@ REMINDFORMAT = "{0}, reminder from {1}: {2} - set {3}, arrived {4}."
 SELFREMINDFORMAT = "{0}, reminder: {1} - set {2}, arrived {3}."
 
 MAX_REMIND_TIME = 157700000  # 5 year
-
-
-def _gatherGroupUsers(bot: BotLike, s: str) -> Iterable[tuple[str, str]]:
-    alias_module = bot.getModule("alias")
-    g = alias_module.get_groupname(bot.dbQuery, s)
-    if g:
-        return [(user, user) for user in alias_module.group_list(bot.dbQuery, g)]
-    return []
-
-
-def _generate_users(
-    bot: BotLike, s: str, nick: str, skipself: bool = True
-) -> tuple[list[tuple[str, str]], list[str], bool, bool]:
-    alias = False
-    if bot.isModuleAvailable("alias"):
-        alias = True
-    uset: set[str] = set()
-    dupes = False
-    users: list[tuple[str, str]] = []  # user,called
-    unknown: list[str] = []
-    targets = deque(s.split(","))
-    hasself = False
-    users_module = bot.getModule("users")
-    while targets:
-        t = targets.popleft()
-        u = users_module.get_username(bot, t, nick)
-        # check for user, then group (put user in list to make iteration easier)
-        if u:
-            u = ((u, t),)
-        elif alias:
-            u = _gatherGroupUsers(bot, t)
-
-        if u:
-            for iu, it in u:
-                if skipself and iu == nick:
-                    hasself = True
-                else:
-                    if iu in uset:
-                        dupes = True
-                    else:
-                        users.append((iu, it))
-                        uset.add(iu)
-        else:
-            # Note: the following is silly code for allowing of groups/users with commas in them... silly.
-            candidate_parts = [t]
-            while not u and targets:
-                candidate_parts.append(targets.popleft())
-                u = users_module.get_username(bot, ",".join(candidate_parts), nick)
-                if u:
-                    u = ((u, ",".join(candidate_parts)),)
-                elif alias:
-                    u = _gatherGroupUsers(bot, ",".join(candidate_parts))
-            # at this point we either have u or ran out of deque, if latter, throw l[1:] back on queue
-            if u:
-                for iu, it in u:
-                    if skipself and iu == nick:
-                        hasself = True
-                    else:
-                        if iu in uset:
-                            dupes = True
-                        else:
-                            users.append((iu, it))
-                            uset.add(iu)
-            else:
-                if candidate_parts[0]:
-                    unknown.append(candidate_parts[0])
-                remaining_parts = candidate_parts[1:]
-                remaining_parts.reverse()
-                targets.extendleft(remaining_parts)
-    return users, unknown, dupes, hasself
 
 
 def deliver_tell(event: Event, bot: BotLike) -> None:
@@ -192,7 +122,7 @@ def tell(event: Event, bot: BotLike) -> None:
     if not msg:
         return bot.say("Need something to tell (%s)" % target)
     caller = bot.getModule("users").get_username(bot, event.nick) or event.nick or ""
-    users, unknown, dupes, hasself = _generate_users(bot, target, caller)
+    users, unknown, dupes, hasself = generate_users(bot, target, caller)
 
     if not users:
         if hasself:
@@ -203,15 +133,15 @@ def tell(event: Event, bot: BotLike) -> None:
     cmd = (event.command or "").lower()
 
     targets = []
-    for user, target in users:
+    for user, orig_nick in users:
         # cmd user msg
-        imsg = "%s %s %s" % (event.command, target, msg)
+        imsg = "%s %s %s" % (cmd, orig_nick, msg)
         # TODO: do we do an alias lookup on event.nick also?
         bot.dbQuery(
             """INSERT INTO tell(user, telltime, source, msg) VALUES (?,?,?,?);""",
             (user, int(timegm(gmtime())), event.nick, imsg),
         )
-        targets.append(target)
+        targets.append(orig_nick)
     if len(users) > 1:
         bot.say(
             RPLFORMAT
@@ -243,74 +173,30 @@ def tell(event: Event, bot: BotLike) -> None:
 def remind(event: Event, bot: BotLike) -> None:
     """remind target datespec msg. Will remind a user <target> about a message <msg> at <datespec> time.
     datespec can be relative (in) or calendar/day based (on), e.g. 'in 5 minutes'"""
-    target, dtime1, dtime2, msg = argumentSplit(event.argument, 4)
-    if not target:
-        return bot.say(functionHelp(tell))
-    if not dtime1:
+    status, target, dtime, msg = parse_remind_args(event.argument)
+    if status == "help":
+        return bot.say(functionHelp(remind))
+    if status == "time":
         return bot.say("Need time to remind.")
-    if dtime1.lower() == "tomorrow":
-        target, dtime1, msg = argumentSplit(
-            event.argument, 3
-        )  # reparse is easiest way I guess... resolves #30 if need to readdress
-        dtime2 = ""
-    else:
-        if not (dtime1 and dtime2):
-            return bot.say("Need time to remind.")
-    if not target:
-        return bot.say(functionHelp(tell))
-    if not msg:
+    if status == "msg":
         return bot.say("Need something to remind (%s)" % target)
 
     origuser = bot.getModule("users").get_username(bot, event.nick) or event.nick or ""
-    users, unknown, dupes, _ = _generate_users(bot, target, origuser, False)
+    users, unknown, dupes, _ = generate_users(bot, target, origuser, False)
 
     if not users:
         return bot.say("Sorry, don't know (%s)." % target)
 
-    dtime = "%s %s" % (dtime1, dtime2)
     # user location aware destination times
-    locmod = None
-    goomod = None
-    timelocale = False
-    try:
-        locmod = bot.getModule("location")
-        goomod = bot.getModule("googleapi")
-        timelocale = True
-    except ConfigException:
-        pass
-
-    origintime = timegm(gmtime())
-    alocaltime = localtime(origintime)
-    localoffset = timegm(alocaltime) - origintime
-    t: struct_time = alocaltime
-    tz: Any = None
-    if locmod and goomod:
-        loc = locmod.getlocation(bot.dbQuery, origuser)
-        if not loc:
-            timelocale = False
-        else:
-            tz = goomod.google_timezone(bot, loc[1], loc[2], origintime)
-            if not tz:
-                timelocale = False
-            else:
-                t = gmtime(origintime + tz[2] + tz[3])  # [2] dst [3] timezone offset
-    ntime = parseDateTime(dtime, t)
-    if not ntime:
+    ntime, current_time, origintime = resolve_user_time(bot, origuser, dtime)
+    if ntime is None:
         return bot.say("Don't know what time and/or day and/or date (%s) is." % dtime)
-
-    # go on, change it. I dare you.
-    if timelocale and tz is not None:
-        current_time = timegm(t) - tz[2] - tz[3]
-        ntime = ntime - tz[2] - tz[3]
-    else:
-        current_time = timegm(t) - localoffset
-        ntime = ntime - localoffset
 
     if ntime < current_time or ntime > current_time + MAX_REMIND_TIME:
         return bot.say("Don't sass me with your back to the future reminds.")
 
     targets = []
-    for user, target in users:
+    for user, orig_nick in users:
         if user == origuser:
             source = None
         else:
@@ -322,7 +208,7 @@ def remind(event: Event, bot: BotLike) -> None:
         if not source:
             targets.append("you")
         else:
-            targets.append(target)
+            targets.append(orig_nick)
     bot.say(
         RPLREMINDFORMAT
         % (

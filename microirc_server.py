@@ -337,7 +337,7 @@ class IRCRelayServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     @staticmethod
     def _valid_nickname(nickname: str) -> bool:
         return bool(nickname) and not any(
-            character.isspace() or character in ",:*?!@." for character in nickname
+            character.isspace() or character in ",:*?!@.#&" for character in nickname
         )
 
     def numeric(
@@ -403,7 +403,10 @@ class IRCRelayHandler(socketserver.StreamRequestHandler):
             raise MicroIRCError("Server attempted to send an invalid IRC line")
         encoded = line.encode(self.server.encoding)
         if len(encoded) > 510:
-            raise MicroIRCError("Server attempted to send an overlong IRC line")
+            # Truncate rather than raise: an overlong relayed line must not kill
+            # the sender's handler thread.  Drop any trailing partial character.
+            line = encoded[:510].decode(self.server.encoding, "ignore")
+            encoded = line.encode(self.server.encoding)
         if self.server.verbose:
             label = (
                 self.state.nickname

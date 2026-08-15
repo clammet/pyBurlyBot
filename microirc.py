@@ -142,7 +142,10 @@ TEST_COMMANDS: tuple[TestCommand, ...] = (
 def _server_value(
     server: Mapping[str, Any], config: Mapping[str, Any], name: str, default: Any = None
 ) -> Any:
-    return server.get(name) or config.get(name) or default
+    for mapping in (server, config):
+        if name in mapping and mapping[name] is not None:
+            return mapping[name]
+    return default
 
 
 def _parse_port(value: Any) -> tuple[int, bool]:
@@ -359,7 +362,7 @@ def _literal_keyword(call: ast.Call, name: str, default: Any = None) -> Any:
         if keyword.arg == name:
             try:
                 return ast.literal_eval(keyword.value)
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 return default
     return default
 
@@ -375,7 +378,7 @@ def discover_static_commands(
             tree = ast.parse(
                 module_path.read_text(encoding="utf-8"), filename=str(module_path)
             )
-        except OSError, SyntaxError:
+        except (OSError, SyntaxError):
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -589,6 +592,25 @@ class IRCSession:
                     return True
         return False
 
+    def drain_stale_replies(
+        self, previous: TestCommand | None, channel: ChannelConfig
+    ) -> None:
+        """Discard already-received lines so they cannot count as new replies."""
+        while True:
+            try:
+                message = self.receive(0.001)
+            except TimeoutError:
+                return
+            if message.command in {"PRIVMSG", "NOTICE"} and len(message.params) >= 2:
+                target = message.params[0].lower()
+                expected_targets = {channel.name.lower(), self.nickname.lower()}
+                if self._is_bot_nick(message.nick) and target in expected_targets:
+                    label = previous.command if previous else "an earlier message"
+                    print(
+                        f"      [warning] discarding stale reply to {label}:"
+                        f" {message.params[-1]}"
+                    )
+
     def wait_for_result(
         self,
         command: TestCommand,
@@ -618,6 +640,12 @@ class IRCSession:
                 if self._is_bot_nick(message.nick) and target in expected_targets:
                     print(f"      <{message.nick}> {message.params[-1]}")
                     replies += 1
+                    if command.command.lower() == "commands":
+                        if not advertised_commands(message.params[-1]):
+                            print(
+                                "      [warning] commands reply does not look like"
+                                " a command list"
+                            )
                     if not command.multiline:
                         return replies
                     idle_deadline = monotonic() + multiline_idle
@@ -655,45 +683,50 @@ def run_target(
     print(
         f"Connecting to {settings.label} at {settings.host}:{settings.port}{tls_label} as {nickname}"
     )
+    if commands:
+        selected_commands = tuple(
+            command_from_body(body, settings.command_prefix) for body in commands
+        )
+        selection_label = (
+            f"Using {len(selected_commands)} command(s) supplied on the command line"
+        )
+    else:
+        selected_commands = select_test_commands(settings.modules)
+        if not selected_commands:
+            raise MicroIRCError(
+                "No static test commands belong to the configured modules"
+            )
+        selection_label = f"Using {len(selected_commands)} static command case(s)"
+
+    timeouts = 0
     session = IRCSession(settings, nickname, timeout, verbose)
     try:
         session.connect()
         print(f"  Registered as {session.nickname}")
+        print(f"  {selection_label}")
         for channel in settings.channels:
             print(f"  Joining {channel.name}")
             session.join(channel)
-            if commands:
-                selected_commands = tuple(
-                    command_from_body(body, settings.command_prefix)
-                    for body in commands
-                )
-                print(
-                    f"    Using {len(selected_commands)} command(s) supplied on the command line"
-                )
-            else:
-                selected_commands = select_test_commands(settings.modules)
-                if not selected_commands:
-                    raise MicroIRCError(
-                        "No static test commands belong to the configured modules"
-                    )
-                print(f"    Using {len(selected_commands)} static command case(s)")
-
             total_commands = len(selected_commands)
             print(f"    Exercising {total_commands} commands")
+            previous: TestCommand | None = None
             for index, command in enumerate(selected_commands, 1):
                 message = _command_message(
                     settings.command_prefix, command.body(session.nickname)
                 )
                 print(f"      [{index}/{total_commands}] {message}")
+                session.drain_stale_replies(previous, channel)
                 session.send_privmsg(channel.name, message)
                 replies = session.wait_for_result(
                     command, channel, reply_timeout, multiline_idle
                 )
                 if not replies:
+                    timeouts += 1
                     print(f"      [timeout after {reply_timeout:g}s: no bot reply]")
+                previous = command
     finally:
         session.close()
-    return 0
+    return 1 if timeouts else 0
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -779,9 +812,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(f"  {command.body(nickname)}{suffix}")
             return 0
 
+        exit_status = 0
         for target in targets:
             nickname = args.nick or (target.bot_nick + "Test")
-            run_target(
+            if run_target(
                 target,
                 nickname,
                 args.command,
@@ -789,8 +823,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.reply_timeout,
                 args.multiline_idle,
                 args.verbose,
-            )
-        return 0
+            ):
+                exit_status = 1
+        return exit_status
     except (MicroIRCError, UnicodeError) as exc:
         print(f"microirc: error: {exc}", file=sys.stderr)
         return 1

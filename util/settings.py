@@ -201,6 +201,9 @@ class BaseServer:
         # A reload must not retain options that were removed or changed to a false value.
         for key in KEYS_SERVER:
             self.__dict__.pop(PROPERTIES_MAP.get(key, key), None)
+        # must stay a per-server dict; without this, attribute fallback would
+        # resolve moduleopts to the global Settings.moduleopts dict
+        self.moduleopts = {}
         self.channels = []
         self.allowmodules = set()
         self.denymodules = set()
@@ -307,17 +310,70 @@ class Server(BaseServer):
         self.reload_modules(Settings.module_registry)
 
     def __getattr__(self, name: str) -> Any:
-        # get Server setting if set, else fall back to global Settings
-        if name in self.__dict__:
-            return getattr(self, name)
-        else:
-            return getattr(Settings, name)
+        # only called when instance lookup fails: fall back to global Settings
+        return getattr(Settings, name)
 
     def getOptions(self, opts: Iterable[str], **kwargs: Any) -> list[Any]:
         vals = []
         for opt in opts:
             vals.append(self.getOption(opt, **kwargs))
         return vals
+
+    @staticmethod
+    def _copyOnReturn(value: Any, inreactor: bool, force: bool = False) -> Any:
+        if force or type(value) in TYPE_COPY:  # copy value if compound datatype
+            return (
+                deepcopy(value)
+                if inreactor
+                else blockingCallFromThread(reactor, deepcopy, value)
+            )
+        return value
+
+    @staticmethod
+    def _lookupModuleOpt(
+        moduleopts: Mapping[str, dict[str, Any]],
+        module: str,
+        opt: str,
+        channel: str | bool | None,
+    ) -> tuple[bool, Any]:
+        if module in moduleopts:
+            mod = moduleopts[module]
+            if (
+                channel
+                and "_channels" in mod
+                and channel in mod["_channels"]
+                and opt in mod["_channels"][channel]
+            ):
+                return True, mod["_channels"][channel][opt]
+            if opt in mod:
+                return True, mod[opt]
+        return False, None
+
+    def _resolveServerModuleOpts(
+        self, server: str | bool | None
+    ) -> dict[str, dict[str, Any]]:
+        if server is not None:
+            try:
+                return Settings.servers[cast(str, server)].moduleopts
+            except KeyError:
+                raise ValueError("Server (%s) not found" % server) from None
+        return self.moduleopts
+
+    @staticmethod
+    def _globalModuleOpts() -> dict[str, dict[str, Any]]:
+        global_moduleopts = Settings.moduleopts
+        if global_moduleopts is None:
+            raise RuntimeError("Global module options are not initialized.")
+        return global_moduleopts
+
+    def _resolveServerObj(self, server: str | bool | None) -> Any:
+        if server is None:
+            return self
+        if server:
+            if server not in Settings.servers:
+                raise ValueError("Server label (%s) not found." % server)
+            return Settings.servers[server]
+        return server
 
     # if channel or server is set, retrieve for that specific thing.
     # if channel or server is False, retrieve "global" for that thing.
@@ -337,90 +393,28 @@ class Server(BaseServer):
         if module:
             if server or server is None:
                 # try searching for option in a server object
-                if server is not None:
-                    try:
-                        moduleopts = Settings.servers[cast(str, server)].moduleopts
-                    except KeyError:
-                        raise ValueError("Server (%s) not found" % server) from None
-                else:
-                    moduleopts = self.moduleopts
-                if module in moduleopts:
-                    mod = moduleopts[module]
-                    if (
-                        channel
-                        and "_channels" in mod
-                        and channel in mod["_channels"]
-                        and opt in mod["_channels"][channel]
-                    ):
-                        value = mod["_channels"][channel][opt]
-                        if type(value) in TYPE_COPY:  # copy value if compound datatype
-                            return (
-                                deepcopy(value)
-                                if inreactor
-                                else blockingCallFromThread(reactor, deepcopy, value)
-                            )
-                        else:
-                            return value
-                    if opt in mod:
-                        value = mod[opt]
-                        if type(value) in TYPE_COPY:  # copy value if compound datatype
-                            return (
-                                deepcopy(value)
-                                if inreactor
-                                else blockingCallFromThread(reactor, deepcopy, value)
-                            )
-                        else:
-                            return value
+                moduleopts = self._resolveServerModuleOpts(server)
+                found, value = self._lookupModuleOpt(moduleopts, module, opt, channel)
+                if found:
+                    return self._copyOnReturn(value, inreactor)
             # fall back to global moduleopts (or server was False)
-            global_moduleopts = Settings.moduleopts
-            if global_moduleopts is None:
-                raise RuntimeError("Global module options are not initialized.")
-            moduleopts = global_moduleopts
-            # duplicated code from above, micro-optimization because bad.
-            if module in moduleopts:
-                mod = moduleopts[module]
-                if (
-                    channel
-                    and "_channels" in mod
-                    and channel in mod["_channels"]
-                    and opt in mod["_channels"][channel]
-                ):
-                    value = mod["_channels"][channel][opt]
-                    if type(value) in TYPE_COPY:  # copy value if compound datatype
-                        return (
-                            deepcopy(value)
-                            if inreactor
-                            else blockingCallFromThread(reactor, deepcopy, value)
-                        )
-                    else:
-                        return value
-                if opt in mod:
-                    value = mod[opt]
-                    if type(value) in TYPE_COPY:  # copy value if compound datatype
-                        return (
-                            deepcopy(value)
-                            if inreactor
-                            else blockingCallFromThread(reactor, deepcopy, value)
-                        )
-                    else:
-                        return value
+            global_moduleopts = self._globalModuleOpts()
+            found, value = self._lookupModuleOpt(global_moduleopts, module, opt, channel)
+            if found:
+                return self._copyOnReturn(value, inreactor)
             if default is NoDefault:
                 raise AttributeError("No setting (%s) for module: %s" % (opt, module))
             else:
                 if setDefault:
-                    moduleopts.setdefault(module, {})[opt] = default
+                    global_moduleopts.setdefault(module, {})[opt] = default
                 return default
         # non-module (core) options
-        server_obj: Any = server
-        if server_obj is None:
-            server_obj = self
-        elif server_obj:
-            if server_obj not in Settings.servers:
-                raise ValueError("Server label (%s) not found." % server_obj)
-            server_obj = Settings.servers[server_obj]
+        if channel:
+            raise ValueError("Core option (%s) cannot be channel-scoped." % opt)
+        server_obj = self._resolveServerObj(server)
 
         if server_obj and opt in KEYS_SERVER_SET:
-            value = getattr(self, opt)
+            value = getattr(server_obj, opt)
         else:
             if not server_obj or server_obj is self:
                 if opt not in KEYS_MAIN_SET:
@@ -431,12 +425,8 @@ class Server(BaseServer):
                 # case where a server setting is specifically attempted to be got, but it's not in KEYS_SERVER
                 # instead of falling back to KEYS_MAIN, raise error
                 raise ValueError("Server setting has no option: (%s) to get." % opt)
-        if opt in KEYS_COPY:  # copy value if compound datatype
-            return (
-                deepcopy(value)
-                if inreactor
-                else blockingCallFromThread(reactor, deepcopy, value)
-            )
+        if opt in KEYS_COPY:  # always copy: these are compound datatypes
+            return self._copyOnReturn(value, inreactor, force=True)
         else:
             return value
 
@@ -455,42 +445,23 @@ class Server(BaseServer):
 
         if module:
             if server or server is None:
-                # try searching for option in a server object
-                if server is not None:
-                    try:
-                        moduleopts = Settings.servers[cast(str, server)].moduleopts
-                    except KeyError:
-                        raise ValueError("Server (%s) not found" % server) from None
-                else:
-                    moduleopts = self.moduleopts
-                mod = moduleopts.setdefault(module, {})
-                if channel:
-                    mod.setdefault("_channels", {}).setdefault(channel, {})[opt] = value
-                else:
-                    mod[opt] = value
-                return
-            # if server was False, (setting "global")
-            global_moduleopts = Settings.moduleopts
-            if global_moduleopts is None:
-                raise RuntimeError("Global module options are not initialized.")
-            moduleopts = global_moduleopts
-            # duplicated code from above, micro-optimization because bad.
+                # target a server's module options
+                moduleopts = self._resolveServerModuleOpts(server)
+            else:
+                # if server was False, (setting "global")
+                moduleopts = self._globalModuleOpts()
             mod = moduleopts.setdefault(module, {})
             if channel:
                 mod.setdefault("_channels", {}).setdefault(channel, {})[opt] = value
             else:
                 mod[opt] = value
         else:
-            server_obj: Any = server
-            if server_obj is None:
-                server_obj = self
-            elif server_obj:
-                if server_obj not in Settings.servers:
-                    raise ValueError("Server label (%s) not found." % server_obj)
-                server_obj = Settings.servers[server_obj]
+            if channel:
+                raise ValueError("Core option (%s) cannot be channel-scoped." % opt)
+            server_obj = self._resolveServerObj(server)
 
             if server_obj and opt in KEYS_SERVER_SET:
-                setattr(self, opt, value)
+                setattr(server_obj, opt, value)
             else:
                 if not server_obj or server_obj is self:
                     if opt not in KEYS_MAIN_SET:
@@ -564,10 +535,7 @@ class SettingsBase:
         return list(self._admins)
 
     @admins.setter
-    def admins(self, value: Iterable[str] | property) -> None:
-        # When we reset defaults, we grab values from SettingsBase... But 'admins' tries to get the property.
-        if isinstance(value, property):
-            return  # TODO: Don't know how to handle this more cleanly
+    def admins(self, value: Iterable[str]) -> None:
         self._admins = [x.casefold() for x in value]
 
     # TODO: not sure if the following is needed or not. Class.dict seems to behave strangely
@@ -699,7 +667,11 @@ class SettingsBase:
                         "SSL Error: Cannot connect to '%s' (%s)"
                         % (server.serverlabel, e)
                     )
+                    # fully retire the server so it is not left half-registered
+                    # (in Settings.servers with a live factory but no database)
+                    server._factory.stopTrying()
                     manager.delServer(server.serverlabel)
+                    self.servers.pop(server.serverlabel, None)
             else:
                 reactor.connectTCP(server.host, server.port, server._factory)
 
@@ -739,7 +711,9 @@ class SettingsBase:
             self._loadsettings()
         else:
             for option_name in KEYS_MAIN:
-                if option_name != "servers":
+                # skip properties: their backing state is reset by _setDefaults,
+                # and class-level getattr would return the descriptor itself
+                if option_name != "servers" and option_name not in PROPERTIES_MAP:
                     setattr(self, option_name, getattr(SettingsBase, option_name))
             self._setDefaults()
 

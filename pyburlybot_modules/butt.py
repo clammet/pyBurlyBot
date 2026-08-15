@@ -123,15 +123,16 @@ def buttify(msg: str) -> str:
     butt_passes = len(buttable_words) // 8 + 1
     buttable_words.sort(key=len, reverse=True)
 
-    # Weighted shuffle (by length of word) for pick order, then remove duplicates
-    words_to_butt = _weighted_butt_words(buttable_words)
-    random.shuffle(words_to_butt)
+    # Weighted pick (by length rank of word); longer words are more likely
+    words_to_butt = buttable_words
+    weights = _butt_word_weights(words_to_butt)
 
     while butt_passes > 0 and words_to_butt:
-        word = words_to_butt.pop(0)
+        word = random.choices(words_to_butt, weights=weights)[0]
         matches = list(re.finditer(re.escape(word), msg))
         if not matches:
             # Already butted all instances of this word, purge it so it doesn't get selected again
+            weights = [w for w, x in zip(weights, words_to_butt, strict=True) if x != word]
             words_to_butt = [x for x in words_to_butt if x != word]
             continue
         # random_match is a MatchObject of a random occurrence of word in msg
@@ -193,13 +194,13 @@ def _butt_word(word: str, butt_pass: int = 0) -> str:
     return lp + actual_word + rp
 
 
-def _weighted_butt_words(sortedlist: list[str]) -> list[str]:
+def _butt_word_weights(sortedlist: list[str]) -> list[int]:
     weight = len(sortedlist)
-    weighted_butt_words = []
-    for word in sortedlist:
-        weighted_butt_words.extend([word] * (weight**2))
+    weights = []
+    for _ in sortedlist:
+        weights.append(weight**2)
         weight -= 1
-    return weighted_butt_words
+    return weights
 
 
 def init(bot: BotLike) -> bool:

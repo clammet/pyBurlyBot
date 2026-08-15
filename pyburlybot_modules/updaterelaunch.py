@@ -42,11 +42,12 @@ def update(event: Event, bot: BotLike) -> None:
     corechange = False
     modchange = False
     for line in changes.splitlines():
-        if line.lstrip("M\t").startswith("pyburlybot_modules/") or line.lstrip(
-            "A\t"
-        ).startswith("pyburlybot_modules/"):
+        if "\t" not in line:
+            continue
+        _status, path = line.split("\t", 1)
+        if path.startswith("pyburlybot_modules/"):
             modchange = True
-        elif line.endswith(".py"):
+        elif path.endswith(".py"):
             corechange = True
     check_output([gitpath, "merge", "origin/main"], text=True)
 

@@ -123,7 +123,7 @@ def weather(event: Event, bot: BotLike) -> None:
         )
     else:
         wind = "%.1f/%.1f MPH/KPH Wind" % (kph2mph(wind_kph), wind_kph)
-    if windchill_c:
+    if windchill_c is not None:
         bot.say(
             WEATHER_RPL_WC
             % (
@@ -180,11 +180,11 @@ def forecast(event: Event, bot: BotLike) -> None:
     current_wday = gmtime(time()).tm_wday
     forecast_time = 0
     output_str = FORECAST_RPL % (_build_locname(city_name, country_code))
-    for forecast in forecast_data["list"]:
+    for forecast_entry in forecast_data["list"]:
         # Go for 24 hour intervals starting now
-        if (forecast["dt"] - forecast_time) < DAY_IN_SECONDS:
+        if (forecast_entry["dt"] - forecast_time) < DAY_IN_SECONDS:
             continue
-        forecast_time = forecast["dt"]
+        forecast_time = forecast_entry["dt"]
 
         f_gmtime = gmtime(forecast_time)
         f_wday = gmtime(forecast_time).tm_wday
@@ -199,30 +199,38 @@ def forecast(event: Event, bot: BotLike) -> None:
         else:
             datestr = "%s@%s" % (WDAY_SHORTMAP[f_wday], timestr)
 
-        # temp_c = forecast['main']['temp']
-        temp_max_c = forecast["main"]["temp_max"]
-        temp_min_c = forecast["main"]["temp_min"]
-        humidity = forecast["main"]["humidity"]
-        wind_kph = ms2kph(forecast["wind"]["speed"])
-        # Direction wind is blowing, instead of coming from
-        wind_cardinal = degrees_to_cardinal(forecast["wind"]["deg"], reverse=True)
-        # cloudiness = forecast['clouds']['all']
+        # temp_c = forecast_entry['main']['temp']
+        temp_max_c = forecast_entry["main"]["temp_max"]
+        temp_min_c = forecast_entry["main"]["temp_min"]
+        humidity = forecast_entry["main"]["humidity"]
+        wind_kph = ms2kph(forecast_entry["wind"]["speed"])
+        # cloudiness = forecast_entry['clouds']['all']
         # windchill_c = wind_chill(temp_c, wind_kph)
-        # simple_conditions = forecast['weather'][0]['main']
-        condition_description = forecast["weather"][0]["description"].title()
+        # simple_conditions = forecast_entry['weather'][0]['main']
+        condition_description = forecast_entry["weather"][0]["description"].title()
         precip = ""
-        if "rain" in forecast:
-            precip += " \x02%.2f\x02mm/3h of rain" % forecast["rain"]["3h"]
-        if "snow" in forecast:
-            precip += " \x02%.2f\x02mm/3h of snow" % forecast["snow"]["3h"]
+        if "rain" in forecast_entry:
+            precip += " \x02%.2f\x02mm/3h of rain" % forecast_entry["rain"]["3h"]
+        if "snow" in forecast_entry:
+            precip += " \x02%.2f\x02mm/3h of snow" % forecast_entry["snow"]["3h"]
         if precip:
             condition_description += ", %s" % precip.lstrip()
 
-        wind = " WND \x02%s\x02@\x02%.1f\x02/\x02%.1f\x02 MPH/KPH" % (
-            wind_cardinal,
-            kph2mph(wind_kph),
-            wind_kph,
-        )
+        if "deg" in forecast_entry["wind"]:
+            # Direction wind is blowing, instead of coming from
+            wind_cardinal = degrees_to_cardinal(
+                forecast_entry["wind"]["deg"], reverse=True
+            )
+            wind = " WND \x02%s\x02@\x02%.1f\x02/\x02%.1f\x02 MPH/KPH" % (
+                wind_cardinal,
+                kph2mph(wind_kph),
+                wind_kph,
+            )
+        else:
+            wind = " WND \x02%.1f\x02/\x02%.1f\x02 MPH/KPH" % (
+                kph2mph(wind_kph),
+                wind_kph,
+            )
 
         daily_str = FORECAST_DAY % (
             datestr,

@@ -1,3 +1,4 @@
+from copy import copy
 from types import ModuleType
 from typing import Any, cast
 from twisted.internet.threads import deferToThread
@@ -259,42 +260,53 @@ class Dispatcher:
                 )
             if self.debug >= 2:
                 print("DISPATCHING: %s" % event)
+            # priority 0 is a total override: no further handlers run for this event
+            overridden = False
             # lol dispatcher is 100 more simple now, but at the cost of more dict...
             for mapping in eventmap[l_event_type]["instant"]:
                 self._dispatchreally(mapping.function, event, cont_or_wrap, self.debug)
                 dispatched = True
                 if mapping.priority == 0:
-                    break  # lol cheap and easy way to support total override
-            # super fast command dispatching now... Only thing left that's slow is the regex but has to be
-            for mapping in command_mappings:
-                if mapping.admin and not settings.is_admin(event.nick, event.account):
-                    # TODO: Do we bot.say("access denied") ?
-                    continue
-                self._dispatchreally(mapping.function, event, cont_or_wrap, self.debug)
-                dispatched = True
-                if mapping.priority == 0:
+                    overridden = True
                     break
-            # TODO: Consider this:
-            # super priority==0 override doesn't really make much sense on a regex, but whatever
-            for mapping in eventmap[l_event_type]["regex"]:
-                if msg is None:
-                    continue
-                result = mapping.regex.search(msg)
-                if result:
-                    event.regex_match = result
+            # super fast command dispatching now... Only thing left that's slow is the regex but has to be
+            if not overridden:
+                for mapping in command_mappings:
+                    if mapping.admin and not settings.is_admin(
+                        event.nick, event.account
+                    ):
+                        # TODO: Do we bot.say("access denied") ?
+                        continue
                     self._dispatchreally(
                         mapping.function, event, cont_or_wrap, self.debug
                     )
                     dispatched = True
                     if mapping.priority == 0:
+                        overridden = True
                         break
+            if not overridden:
+                for mapping in eventmap[l_event_type]["regex"]:
+                    if msg is None:
+                        continue
+                    result = mapping.regex.search(msg)
+                    if result:
+                        # handlers run in threads: give each its own event so a
+                        # later match can't overwrite regex_match mid-handler
+                        regex_event = copy(event)
+                        regex_event.regex_match = result
+                        self._dispatchreally(
+                            mapping.function, regex_event, cont_or_wrap, self.debug
+                        )
+                        dispatched = True
+                        if mapping.priority == 0:
+                            break
 
         if l_event_type in self.waitmap:
             # special map to deal with WaitData
             # delayed event creation as late as possible:
             if event is None:
                 event, cont_or_wrap = self.createEventAndWrap(
-                    cont_or_wrap, event_type, eventkwargs
+                    cont_or_wrap, l_event_type, eventkwargs
                 )
             wdset = self.waitmap[l_event_type]
             remove = []

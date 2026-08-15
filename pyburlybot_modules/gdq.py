@@ -65,7 +65,7 @@ def parse_schedule_page(content: bytes | str) -> tuple[ScheduleRun, ...]:
             continue
         try:
             flight_chunk = loads(text.removeprefix(NEXT_DATA_PREFIX).removesuffix(")"))
-        except JSONDecodeError, TypeError:
+        except (JSONDecodeError, TypeError):
             continue
         if (
             isinstance(flight_chunk, list)
@@ -82,7 +82,7 @@ def parse_schedule_page(content: bytes | str) -> tuple[ScheduleRun, ...]:
             continue
         try:
             record = loads(value)
-        except JSONDecodeError, TypeError:
+        except (JSONDecodeError, TypeError):
             continue
         if not isinstance(record, dict) or record.get("type") != "speedrun":
             continue
@@ -159,11 +159,15 @@ def gdq(event: Event, bot: BotLike) -> None:
     action, value = argumentSplit(event.argument, 2)
     gamename = action if action and action.startswith("~") else event.argument
     if gamename:
+        if event.isPM():
+            chan_or_user = event.nick
+        else:
+            chan_or_user = event.target
         if gamename == "~list":
             alerts = bot.dbQuery(
                 """SELECT game_text FROM gdq_alert
                     WHERE source=? AND source_name=? ORDER BY game_text;""",
-                (event.target, event.nick),
+                (chan_or_user, event.nick),
             )
             items = [row["game_text"] for row in alerts]
             if not items:
@@ -176,7 +180,7 @@ def gdq(event: Event, bot: BotLike) -> None:
                 """DELETE FROM gdq_alert
                     WHERE source=? AND source_name=? AND game_text=?
                     RETURNING id;""",
-                (event.target, event.nick, value),
+                (chan_or_user, event.nick, value),
             )
             return bot.say(
                 "GDQ alert deleted." if removed else "No matching GDQ alert was found."
@@ -186,14 +190,14 @@ def gdq(event: Event, bot: BotLike) -> None:
         item = bot.dbQuery(
             """SELECT source, source_name, game_text
                 FROM gdq_alert WHERE source=? AND source_name=? AND game_text=?; """,
-            (event.target, event.nick, gamename),
+            (chan_or_user, event.nick, gamename),
         )
         if item:
             bot.say("I'm already going to tell you about (%s)" % gamename)
             return
         bot.dbQuery(
             """INSERT INTO gdq_alert(source, source_name, game_text, notified_time) VALUES (?,?,?,?);""",
-            (event.target, event.nick, gamename, 0),
+            (chan_or_user, event.nick, gamename, 0),
         )
         bot.say("I'll let you know when (%s) is on." % gamename)
         return

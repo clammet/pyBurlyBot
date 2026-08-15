@@ -71,27 +71,24 @@ def pastehelper(
                 tmsg = basemsg % sep[0].join(items)
             if bot.checkSay(tmsg):
                 return bot.say(tmsg)
+        # guard only the addon lookup, so a genuine AttributeError raised
+        # inside the paste addon (or say) is not misreported as "no addon"
         try:
-            if items is not None:
-                if altmsg:
-                    url = bot.getAddon("paste")(
-                        altmsg % sep[1].join(items), bot=bot, **kwargs
-                    )
-                else:
-                    url = bot.getAddon("paste")(
-                        basemsg % sep[1].join(items), bot=bot, **kwargs
-                    )
-            else:
-                url = bot.getAddon("paste")(basemsg, bot=bot, **kwargs)
-            if url:
-                bot.say(basemsg % url)
-            else:
-                bot.say(basemsg % "Error: paste addon failure.")
+            paste = bot.getAddon("paste")
         except AttributeError:
             if items is not None:
                 bot.say(basemsg % "Error: too many entries to list and no paste addon.")
             else:
                 bot.say(basemsg % "Error: too much data and no paste addon.")
+            return
+        if items is not None:
+            url = paste((altmsg or basemsg) % sep[1].join(items), bot=bot, **kwargs)
+        else:
+            url = paste(basemsg, bot=bot, **kwargs)
+        if url:
+            bot.say(basemsg % url)
+        else:
+            bot.say(basemsg % "Error: paste addon failure.")
     except Exception:
         # make sure contents of paste is at least dumped somewhere for recovery if need be.
         if items is not None:
@@ -113,7 +110,7 @@ def english_list(items: str | Sequence[str]) -> str:
     elif len(values) == 2:
         return "%s and %s" % (values[0], values[1])
     else:
-        return values[0]
+        return values[0] if values else ""
 
 
 URLREGEX = recompile(

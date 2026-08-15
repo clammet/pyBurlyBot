@@ -106,6 +106,10 @@ class Container:
             else:
                 return attr
         if callable(attr):
+            if name in self.BLOCKINGCALLS:
+                # pure query calls: nothing useful to queue while disconnected,
+                # callers receive None (matching what queueing returned anyway)
+                return lambda *a, **kw: None
             # return function to queue the real method call
             return partial(reactor.callFromThread, self._queuer, name)
         raise ValueError("Bot not connected.")
@@ -274,14 +278,13 @@ class Container:
 
     # helper for modules. Module code that using this shouldn't be in the reactor thread
     # (which should be all the time, unless it's in init() )
+    # The callable fires in the reactor thread. Bot API methods (bot.say, bot.sendmsg,
+    # ...) are safe to pass; a callable that takes an `inreactor` flag must be given
+    # pre-bound, e.g. partial(f, inreactor=True).
     def later(
         self, delay: int | float, callable: Callable[..., Any], *args: Any, **kw: Any
     ) -> None:
-        if isinstance(callable, partial):
-            callable = callable.func
-        reactor.callFromThread(
-            reactor.callLater, delay, callable, *args, inreactor=True, **kw
-        )
+        reactor.callFromThread(reactor.callLater, delay, callable, *args, **kw)
 
 
 # provide special container to use when feeding "init()" of modules

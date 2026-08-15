@@ -1,26 +1,26 @@
 from collections.abc import Sequence
-from typing import Any
 import sqlite3
 from util.event import Event
 from util.types import BotLike
 from util.db import Query
 
 # alert module
-from time import gmtime, localtime, struct_time
+from time import gmtime
 from util import Timers, TimerExists
 from calendar import timegm
-from collections import deque
 
 from util import (
     Mapping,
-    argumentSplit,
     functionHelp,
     distance_of_time_in_words,
     pastehelper,
     english_list,
-    parseDateTime,
 )
-from util.settings import ConfigException
+from pyburlybot_modules.remind_common import (
+    generate_users,
+    parse_remind_args,
+    resolve_user_time,
+)
 
 TIMER_NAME = "alert_timer"
 REQUIRES = ("users",)
@@ -40,32 +40,6 @@ def _timer_name(bot: BotLike, suffix: str = "") -> str:
     return "%s:%s%s" % (TIMER_NAME, bot.network, suffix)
 
 
-def _lookup_users(
-    bot: BotLike, users_string: str, caller_nick: str, skip_self: bool = True
-) -> tuple[list[tuple[str, str]], list[str], bool, bool]:
-    user_set: set[str] = set()
-    has_dupes = False
-    users: list[tuple[str, str]] = []  # user,called
-    unknown: list[str] = []
-    to_lookup_list = deque(users_string.split(","))
-    has_self = False
-    users_module = bot.getModule("users")
-    while to_lookup_list:
-        to_lookup = to_lookup_list.popleft()
-        looked_up_user = users_module.get_username(bot, to_lookup, caller_nick)
-        if looked_up_user:
-            if skip_self and looked_up_user == caller_nick:
-                has_self = True
-            elif looked_up_user in user_set:
-                has_dupes = True
-            else:
-                users.append((looked_up_user, to_lookup))
-                user_set.add(looked_up_user)
-        else:
-            unknown.append(to_lookup)
-    return users, unknown, has_dupes, has_self
-
-
 def check_alerts_callback(bot: BotLike) -> None:
     current_time = int(timegm(gmtime()))
     timecheck = current_time + int(LOOP_INTERVAL)
@@ -77,20 +51,21 @@ def check_alerts_callback(bot: BotLike) -> None:
     )
 
     deliver_now: dict[str, list[sqlite3.Row]] = {}
-    deliver_soon: dict[str, list[sqlite3.Row]] = {}
+    deliver_soon: dict[tuple[str, int], list[sqlite3.Row]] = {}
     for a in alerts:
         chan_or_user = a["source"].lower()
         delay = a["alert_time"] - current_time
         if delay <= 0:
             deliver_now.setdefault(chan_or_user, []).append(a)
         else:
-            deliver_soon.setdefault(chan_or_user, []).append(a)
+            # Schedule per distinct due-time so no alert is delivered early
+            deliver_soon.setdefault((chan_or_user, a["alert_time"]), []).append(a)
 
     for chan_or_user, alerts in deliver_now.items():
         deliver_alerts(chan_or_user, alerts, bot)
 
-    for chan_or_user, alerts in deliver_soon.items():
-        delay = alerts[0]["alert_time"] - current_time
+    for (chan_or_user, alert_time), alerts in deliver_soon.items():
+        delay = alert_time - current_time
         ids = "_".join(str(x["id"]) for x in alerts)
         timer_name = _timer_name(bot, ":" + ids)
         try:
@@ -177,98 +152,53 @@ def deliver_alerts(
 def alert(event: Event, bot: BotLike) -> None:
     """alert target datespec msg. Alert a user <target> about a message <msg> at <datespec> time.
     datespec can be relative (in) or calendar/day based (on), e.g. 'in 5 minutes'"""
-    target, dtime1, dtime2, msg = argumentSplit(event.argument, 4)
-    if not target:
+    status, target, dtime, msg = parse_remind_args(event.argument)
+    if status == "help":
         return bot.say(functionHelp(alert))
-    if not dtime1:
+    if status == "time":
         return bot.say("Need time to alert.")
-    if dtime1.lower() == "tomorrow":
-        target, dtime1, msg = argumentSplit(
-            event.argument, 3
-        )  # reparse is easiest way I guess... resolves #30 if need to readdress
-        dtime2 = ""
-    else:
-        if not (dtime1 and dtime2):
-            return bot.say("Need time to alert.")
-    if not target:
-        return bot.say(functionHelp(alert))
-    if not msg:
+    if status == "msg":
         return bot.say("Need something to alert (%s)" % target)
 
     origuser = bot.getModule("users").get_username(bot, event.nick) or event.nick or ""
-    users, unknown, dupes, _ = _lookup_users(bot, target, origuser, False)
+    users, unknown, dupes, _ = generate_users(bot, target, origuser, False)
 
     if not users:
         return bot.say("Sorry, don't know (%s)." % target)
 
-    dtime = "%s %s" % (dtime1, dtime2)
     # user location aware destination times
-    locmod = None
-    goomod = None
-    timelocale = False
-    try:
-        locmod = bot.getModule("location")
-        goomod = bot.getModule("googleapi")
-        timelocale = True
-    except ConfigException:
-        pass
-
-    origin_time = timegm(gmtime())
-    alocal_time = localtime(origin_time)
-    local_offset = timegm(alocal_time) - origin_time
-    t: struct_time = alocal_time
-    tz: Any = None
-    if locmod and goomod:
-        loc = locmod.getlocation(bot.dbQuery, origuser)
-        if not loc:
-            timelocale = False
-        else:
-            tz = goomod.google_timezone(bot, loc[1], loc[2], origin_time)
-            if not tz:
-                timelocale = False
-            else:
-                t = gmtime(origin_time + tz[2] + tz[3])  # [2] dst [3] timezone offset
-    ntime = parseDateTime(dtime, t)
-    if not ntime:
+    ntime, current_time, origin_time = resolve_user_time(bot, origuser, dtime)
+    if ntime is None:
         return bot.say("Don't know what time and/or day and/or date (%s) is." % dtime)
-
-    # go on, change it. I dare you.
-    if timelocale and tz is not None:
-        current_time = timegm(t) - tz[2] - tz[3]
-        ntime = ntime - tz[2] - tz[3]
-    else:
-        current_time = timegm(t) - local_offset
-        ntime = ntime - local_offset
 
     if ntime < current_time or ntime > (current_time + MAX_REMIND_TIME):
         return bot.say("Don't sass me with your back to the future alerts.")
     if ntime < (current_time + 5):
         return bot.say("2fast")
 
+    if event.isPM():
+        chan_or_user = event.nick
+    else:
+        chan_or_user = event.target
+
     targets = []
-    for user, target in users:
+    for user, orig_nick in users:
         if user == origuser:
             source_user = None
         else:
             source_user = event.nick
-
-        if event.isPM():
-            chan_or_user = event.nick
-        else:
-            chan_or_user = event.target
 
         bot.dbQuery(
             """INSERT INTO alert(target_user, alert_time, created_time, source, source_user, msg) VALUES (?,?,?,?,?,?);""",
             (user, int(ntime), int(origin_time), chan_or_user, source_user, msg),
         )
 
-        if ntime < (current_time + LOOP_INTERVAL):
-            Timers.restarttimer(_timer_name(bot))
-
         if not source_user:
             targets.append("you")
         else:
-            targets.append(target)
+            targets.append(orig_nick)
+    if ntime < (current_time + LOOP_INTERVAL):
+        Timers.restarttimer(_timer_name(bot))
     bot.say(
         RPL_ALERT_FORMAT
         % (

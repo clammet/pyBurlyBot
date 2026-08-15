@@ -24,6 +24,7 @@ def hash(event: Event, bot: BotLike) -> None:
     if method not in algorithms_available:
         return bot.say(
             "Unknown method (%s). Use \x02hash methods\x02 to see what methods are supported."
+            % method
         )
     h = new(method)
     h.update(content.encode("utf-8"))
@@ -34,7 +35,7 @@ def hash_md5(event: Event, bot: BotLike) -> None:
     """md5 content. content will be md5 hashed (after encoding to UTF-8.)"""
     arg = event.argument
     if not arg:
-        return bot.say(functionHelp(md5))
+        return bot.say(functionHelp(hash_md5))
     digest = md5(arg.encode("utf-8"), usedforsecurity=False).hexdigest()
     bot.say("%s - %s" % (digest, repr(arg)))
 
@@ -81,13 +82,13 @@ def fencode(event: Event, bot: BotLike) -> None:
     try:
         try:
             bot.say(repr(content.encode(method)))
-        except LookupError, UnicodeError:
+        except (LookupError, UnicodeError):
             bot.say(repr(codecs_encode(content.encode("utf-8"), cast(Any, method))))
     except LookupError:
         bot.say(
             "Unknown encoding. Available encodings: https://docs.python.org/2/library/codecs.html#standard-encodings"
         )
-    except UnicodeEncodeError, UnicodeDecodeError:
+    except (UnicodeEncodeError, UnicodeDecodeError):
         bot.say("Can't encode.")
 
 
@@ -112,7 +113,7 @@ def fdecode(event: Event, bot: BotLike) -> None:
         bot.say(
             "Unknown encoding. Available encodings: https://docs.python.org/2/library/codecs.html#standard-encodings"
         )
-    except UnicodeEncodeError, UnicodeDecodeError:
+    except (UnicodeEncodeError, UnicodeDecodeError):
         bot.say("Can't decode.")
 
 

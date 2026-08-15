@@ -81,13 +81,11 @@ class Event:
         return self.__repr__()
 
     def __getattr__(self, name: str) -> Any:
-        # return attr if it exists, else return the one in kwargs
+        # only called when normal attribute lookup fails; fall back to kwargs
         try:
-            return self.__dict__[name]
+            return self.kwargs[name]
         except KeyError:
-            return self.kwargs[
-                name
-            ]  # will raise KeyError if requested kwarg doesn't exist
+            raise AttributeError(name) from None
 
     # TODO: Should this be called "isQuery" ?
     def isPM(self) -> bool:

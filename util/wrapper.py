@@ -25,21 +25,19 @@ class BotWrapper:
             )
         return getattr(self._botcont, name)
 
+    # the sender's nick for a PM, else the channel the event came from
+    def _replyTarget(self) -> str | None:
+        return self.event.nick if self.event.isPM() else self.event.target
+
     # I think say should act as like a "reply" sending message back to whatever
     #  send it, be it channel or user
     # TODO: should this prepend event.nick so like "Nick, msg" "Nick: msg"?
     #         saves modules doing it every line. Maybe add a bypass?
     def say(self, msg: str, **kwargs: Any) -> None:
-        if self.event.isPM():
-            self.sendmsg(self.event.nick, msg, **kwargs)
-        else:
-            self.sendmsg(self.event.target, msg, **kwargs)
+        self.sendmsg(self._replyTarget(), msg, **kwargs)
 
     def checkSay(self, msg: str) -> bool:
-        if self.event.isPM():
-            return self.checkSendMsg(self.event.nick, msg)
-        else:
-            return self.checkSendMsg(self.event.target, msg)
+        return self.checkSendMsg(self._replyTarget(), msg)
 
     def isadmin(
         self, module: str | None = None, inreactor: bool = False
@@ -70,27 +68,27 @@ class BotWrapper:
         )
 
     # option getter/setters
-    # if channel is None, pass current channel.
+    # if channel is None, default module options to the current channel;
+    # core options have no channel scope so they are left unscoped.
     # otherwise duplicated from container
+    def _defaultChannel(
+        self, channel: str | bool | None, module: str | None
+    ) -> str | bool | None:
+        if channel is None and module and not self.event.isPM():
+            return self.event.target
+        return channel
+
     def getOption(
         self, opt: str, channel: str | bool | None = None, **kwargs: Any
     ) -> Any:
-        if not self.event.isPM() and channel is None:
-            return self._botcont._settings.getOption(
-                opt, channel=self.event.target, **kwargs
-            )
-        else:
-            return self._botcont._settings.getOption(opt, channel=channel, **kwargs)
+        channel = self._defaultChannel(channel, kwargs.get("module"))
+        return self._botcont._settings.getOption(opt, channel=channel, **kwargs)
 
     def getOptions(
         self, opts: Iterable[str], channel: str | bool | None = None, **kwargs: Any
     ) -> list[Any]:
-        if not self.event.isPM() and channel is None:
-            return self._botcont._settings.getOptions(
-                opts, channel=self.event.target, **kwargs
-            )
-        else:
-            return self._botcont._settings.getOptions(opts, channel=channel, **kwargs)
+        channel = self._defaultChannel(channel, kwargs.get("module"))
+        return self._botcont._settings.getOptions(opts, channel=channel, **kwargs)
 
     # Default target channel for setOption is to target current channel unless argument of "channel" is False
     def setOption(
@@ -101,32 +99,18 @@ class BotWrapper:
         inreactor: bool = False,
         **kwargs: Any,
     ) -> None:
-        if not self.event.isPM() and channel is None:
-            if inreactor:
-                self._botcont._settings.setOption(
-                    opt, value, channel=self.event.target, **kwargs
-                )
-            else:
-                blockingCallFromThread(
-                    reactor,
-                    self._botcont._settings.setOption,
-                    opt,
-                    value,
-                    channel=self.event.target,
-                    **kwargs,
-                )
+        channel = self._defaultChannel(channel, kwargs.get("module"))
+        if inreactor:
+            self._botcont._settings.setOption(opt, value, channel=channel, **kwargs)
         else:
-            if inreactor:
-                self._botcont._settings.setOption(opt, value, channel=channel, **kwargs)
-            else:
-                blockingCallFromThread(
-                    reactor,
-                    self._botcont._settings.setOption,
-                    opt,
-                    value,
-                    channel=channel,
-                    **kwargs,
-                )
+            blockingCallFromThread(
+                reactor,
+                self._botcont._settings.setOption,
+                opt,
+                value,
+                channel=channel,
+                **kwargs,
+            )
 
     # callback to handle module errors
     def _moduleerr(self, e: Any) -> None:

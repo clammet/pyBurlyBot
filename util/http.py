@@ -417,12 +417,20 @@ class HTTPClient:
             next_url = urljoin(current_url, location)
             old_origin = (scheme, hostname, port)
             next_parsed = urlsplit(next_url)
-            next_origin = (
-                next_parsed.scheme.casefold(),
-                (next_parsed.hostname or "").casefold(),
-                next_parsed.port
-                or (443 if next_parsed.scheme.casefold() == "https" else 80),
-            )
+            next_scheme = next_parsed.scheme.casefold()
+            try:
+                # IDNA-encode to match how old_origin's hostname was derived
+                next_hostname = (
+                    next_parsed.hostname.encode("idna").decode("ascii")
+                    if next_parsed.hostname
+                    else ""
+                )
+                next_port = next_parsed.port or (443 if next_scheme == "https" else 80)
+            except (UnicodeError, ValueError) as exc:
+                raise HTTPError(
+                    "Invalid redirect URL authority: %s" % next_url
+                ) from exc
+            next_origin = (next_scheme, next_hostname, next_port)
             if next_origin != old_origin:
                 request_headers = {
                     key: value
@@ -433,8 +441,11 @@ class HTTPClient:
                 response.status in {301, 302} and method == "POST"
             ):
                 method, body = "GET", None
-                request_headers.pop("Content-Type", None)
-                request_headers.pop("Content-Length", None)
+                request_headers = {
+                    key: value
+                    for key, value in request_headers.items()
+                    if key.casefold() not in {"content-type", "content-length"}
+                }
             current_url = next_url
 
         raise AssertionError("redirect loop terminated unexpectedly")

@@ -139,11 +139,14 @@ def user_seen(event: Event, bot: BotLike) -> str | None:
                     )
             if len(group) > 3:
                 try:
-                    return "%s, see %s" % (
-                        event.nick,
-                        bot.getAddon("paste")(
-                            "\n".join(msgs), title="Seen %s" % target
-                        ),
+                    return bot.say(
+                        "%s, see %s"
+                        % (
+                            event.nick,
+                            bot.getAddon("paste")(
+                                "\n".join(msgs), title="Seen %s" % target
+                            ),
+                        )
                     )
                 except AttributeError:
                     return bot.say("Too many users and no paste available.")
