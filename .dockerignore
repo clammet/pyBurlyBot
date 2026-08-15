@@ -1,0 +1,18 @@
+# NOTE: .git is intentionally NOT ignored - the runtime self-updater needs a
+# real checkout. Only ignore untracked local files here; ignoring anything
+# git-tracked would leave the in-image checkout dirty and break merges.
+.venv/
+**/__pycache__/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.DS_Store
+
+# local runtime state and secrets - never bake these into an image layer
+BurlyBot.json
+.BurlyBot-*.json.tmp
+data/
+logindex/
+state/
+reports/
+cert/

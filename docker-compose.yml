@@ -1,0 +1,23 @@
+# Local/dev compose file.
+services:
+  pyburlybot:
+    image: ghcr.io/clammet/pyburlybot:latest
+    build: .
+    container_name: pyburlybot
+    restart: unless-stopped
+    environment:
+      PYBB_HEARTBEAT_FILE: state/.heartbeat
+    volumes:
+      - pyburlybot_data:/app/state
+    # graceful shutdown is staged over ~3s (IRC QUIT, DB flush, reactor stop)
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "docker/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 4
+      start_period: 90s
+
+volumes:
+  pyburlybot_data:
+    name: pyburlybot_data
