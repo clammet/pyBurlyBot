@@ -3,12 +3,8 @@ from functools import partial
 from threading import Lock
 from time import monotonic
 
-from twisted.internet import reactor
-from twisted.internet.threads import blockingCallFromThread
-
 from util import Mapping, argumentSplit, functionHelp, pastehelper
 from util.event import Event
-from util.settings import Settings
 from util.types import BotLike
 
 
@@ -49,11 +45,6 @@ def _rate_limit(event: Event, bot: BotLike) -> bool:
             return False
         events.append(now)
     return True
-
-
-def _save_and_reload(bot: BotLike) -> None:
-    Settings.saveOptions()
-    bot.reloadModules(inreactor=True)
 
 
 def _aliases(entry: object) -> list[str]:
@@ -113,7 +104,7 @@ def simplecommands(event: Event, bot: BotLike) -> None:
             )
         commands.remove(matches[0])
         bot.setOption("commands", commands, module="simplecommands", channel=False)
-        blockingCallFromThread(reactor, _save_and_reload, bot)
+        bot.reloadModules(save_options=True)
         return bot.say("Simplecommand (%s) deleted and configuration saved." % second)
 
     if second:
@@ -137,7 +128,7 @@ def simplecommands(event: Event, bot: BotLike) -> None:
                     )
         commands.append([aliases, second])
         bot.setOption("commands", commands, module="simplecommands", channel=False)
-        blockingCallFromThread(reactor, _save_and_reload, bot)
+        bot.reloadModules(save_options=True)
         action = "replaced" if matches else "added"
         return bot.say(
             "Simplecommand (%s) %s and configuration saved." % (first, action)

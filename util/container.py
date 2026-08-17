@@ -1,6 +1,6 @@
 from collections.abc import Callable, Generator, Iterable, Sequence
 from types import ModuleType
-from typing import Any, NoReturn, TypeAlias, cast
+from typing import Any, NoReturn, TypeAlias
 # container...
 # This module does a few things. It holds a reference to the current botinstance
 # it wraps actual botinst functions to limit the scope of what functions modules have access to within botinstance
@@ -13,13 +13,13 @@ from functools import partial
 from uuid import uuid4
 
 from twisted.internet import reactor as _reactor
-from twisted.internet.threads import blockingCallFromThread
 from twisted.python.failure import Failure
 
 from util.state import Network
 from util.client import BurlyBot
 from util.db import Query
 from util.event import Event
+from util.threads import call_in_reactor
 from util.types import DatabaseParams
 
 reactor: Any = _reactor
@@ -101,7 +101,7 @@ class Container:
             if callable(attr):
                 # check if we need to blocking call or not:
                 if name in self.BLOCKINGCALLS:
-                    return partial(blockingCallFromThread, reactor, attr)
+                    return partial(call_in_reactor, attr)
                 else:
                     return partial(reactor.callFromThread, attr)
             else:
@@ -151,19 +151,11 @@ class Container:
         return self._settings.getOptions(opts, **kwargs)
 
     def setOption(self, opt: str, value: Any, **kwargs: Any) -> None:
-        blockingCallFromThread(
-            reactor, cast(Any, self._setOption), opt, value, **kwargs
-        )
-
-    def _setOption(self, opt: str, value: Any, **kwargs: Any) -> None:
-        self._settings.setOption(opt, value, **kwargs)
+        call_in_reactor(self._settings.setOption, opt, value, **kwargs)
 
     # Some module helpers
-    def _getModule(self, modname: str) -> ModuleType:
-        return self._settings.getModule(modname)
-
     def getModule(self, modname: str) -> ModuleType:
-        return blockingCallFromThread(reactor, self._getModule, modname)
+        return call_in_reactor(self._settings.getModule, modname)
 
     def isModuleAvailable(self, modname: str) -> bool:
         return self._settings.isModuleAvailable(modname)
@@ -174,27 +166,26 @@ class Container:
             return []
         return dispatcher._getCommandMappings(command)
 
-    def getCommandMappings(
-        self, command: str | None = None, *, inreactor: bool = False
-    ) -> list[Any]:
-        if inreactor:
-            return self._getCommandMappings(command)
-        return blockingCallFromThread(reactor, self._getCommandMappings, command)
+    def getCommandMappings(self, command: str | None = None) -> list[Any]:
+        return call_in_reactor(self._getCommandMappings, command)
 
-    def reloadModules(self, *, inreactor: bool = False) -> None:
-        if inreactor:
-            self._settings.reload_current_modules()
-        else:
-            blockingCallFromThread(reactor, self._settings.reload_current_modules)
+    def _reloadModules(self, save_options: bool) -> None:
+        if save_options:
+            self._settings.saveOptions()
+        self._settings.reload_current_modules()
 
-    def _getAddon(self, addonname: str) -> Callable[..., Any]:
-        return self._settings.getAddon(addonname)
+    def reloadModules(self, *, save_options: bool = False) -> None:
+        """Reload every module on this server; save_options=True writes the
+        configuration file first (in the same reactor turn)."""
+        call_in_reactor(self._reloadModules, save_options)
 
     # Event posting. Lets modules raise their own events (any type name) which
     # are dispatched exactly like IRC events: to Mapping(types=[...]) handlers
     # and to send_and_wait() generators. Handlers receive the plain Container
     # (no reply target) unless the poster supplies target/nick kwargs, so
     # bot.say() is not available to them by default.
+    # Dispatch always happens on a later reactor turn, so an event posted from
+    # init() during a (re)load is seen by every module once loading finishes.
     def _postEvent(
         self, event_type: str, broadcast: bool, eventkwargs: dict[str, Any]
     ) -> None:
@@ -216,7 +207,6 @@ class Container:
         event_type: str,
         *,
         broadcast: bool = False,
-        inreactor: bool = False,
         **eventkwargs: Any,
     ) -> None:
         """Post an event of ``event_type`` to this server's dispatcher.
@@ -233,13 +223,10 @@ class Container:
         # shared by every per-server copy of a broadcast, so handlers of
         # process-wide actions (e.g. reload) can act once per post
         eventkwargs.setdefault("event_id", uuid4().hex)
-        if inreactor:
-            self._postEvent(event_type, broadcast, eventkwargs)
-        else:
-            reactor.callFromThread(self._postEvent, event_type, broadcast, eventkwargs)
+        reactor.callFromThread(self._postEvent, event_type, broadcast, eventkwargs)
 
     def getAddon(self, addonname: str) -> Callable[..., Any]:
-        return blockingCallFromThread(reactor, self._getAddon, addonname)
+        return call_in_reactor(self._settings.getAddon, addonname)
 
     # callback to handle module errors
     # TODO: maybe provide modules a way to hook these?
@@ -325,51 +312,9 @@ class Container:
             self.network, tablename, createstmt
         )
 
-    # helper for modules. Module code that using this shouldn't be in the reactor thread
-    # (which should be all the time, unless it's in init() )
-    # The callable fires in the reactor thread. Bot API methods (bot.say, bot.sendmsg,
-    # ...) are safe to pass; a callable that takes an `inreactor` flag must be given
-    # pre-bound, e.g. partial(f, inreactor=True).
+    # helper for modules: run callable in the reactor thread after delay seconds.
+    # Bot API methods (bot.say, bot.sendmsg, ...) are safe to pass.
     def later(
         self, delay: int | float, callable: Callable[..., Any], *args: Any, **kw: Any
     ) -> None:
         reactor.callFromThread(reactor.callLater, delay, callable, *args, **kw)
-
-
-# provide special container to use when feeding "init()" of modules
-# doesn't try to call methods inside reactor because already inside reactor
-class SetupContainer:
-    def __init__(self, realcontainer: Container) -> None:
-        self.container = realcontainer
-        self.network = realcontainer.network
-
-    # Some module helpers so that the bot doesn't freeze during dispatcher initialization due to "blockingcallfromthread"
-    def getModule(self, modname: str) -> ModuleType:
-        return self.container._getModule(modname)
-
-    def isModuleAvailable(self, modname: str) -> bool:
-        return self.container.isModuleAvailable(modname)
-
-    def getOption(self, opt: str, **kwargs: Any) -> Any:
-        return self.container.getOption(opt, inreactor=True, **kwargs)
-
-    def getOptions(self, opts: Iterable[str], **kwargs: Any) -> list[Any]:
-        return self.container.getOptions(opts, inreactor=True, **kwargs)
-
-    def setOption(self, opt: str, value: Any, **kwargs: Any) -> None:
-        return self.container._setOption(opt, value, **kwargs)
-
-    def dbCheckCreateTable(self, tablename: str, createstmt: str) -> bool:
-        return self.container.dbCheckCreateTable(tablename, createstmt)
-
-    def getAddon(self, addonname: str) -> Callable[..., Any]:
-        return self.container._getAddon(addonname)
-
-    # NOTE: during init() the event map is still being built, so handlers of
-    # modules that have not finished loading yet will not see events posted here.
-    def postEvent(
-        self, event_type: str, *, broadcast: bool = False, **eventkwargs: Any
-    ) -> None:
-        self.container.postEvent(
-            event_type, broadcast=broadcast, inreactor=True, **eventkwargs
-        )

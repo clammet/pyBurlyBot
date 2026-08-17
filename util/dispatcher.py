@@ -8,7 +8,7 @@ from operator import attrgetter
 from functools import partial
 
 from .wrapper import BotWrapper
-from .container import Container, SetupContainer, WaitData
+from .container import Container, WaitData
 from .helpers import commandSplit, coerceToUnicode
 from .event import Event
 from .moduleloader import ModuleLoadError
@@ -148,14 +148,13 @@ class Dispatcher:
                 module=name,
                 default=spec.default,
                 setDefault=True,
-                inreactor=True,
             )
 
+    # init() and get_mappings() run in the reactor thread and receive the same
+    # Container handlers/timers/webhooks use later, so a module may keep it.
     def _initialize_module(self, name: str, module: ModuleType) -> None:
         initialize = getattr(module, "init", None)
-        if initialize is not None and not initialize(
-            SetupContainer(self.settings.container)
-        ):
+        if initialize is not None and not initialize(self.settings.container):
             raise ModuleLoadError("init() returned a false value.")
 
     def _register_addons(self, name: str, module: ModuleType) -> None:
@@ -178,7 +177,7 @@ class Dispatcher:
         eventmap = self.eventmap
         mapping_factory = getattr(module, "get_mappings", None)
         if mapping_factory is not None:
-            mappings = mapping_factory(SetupContainer(self.settings.container))
+            mappings = mapping_factory(self.settings.container)
         else:
             mappings = getattr(module, "mappings", ())
         for mapping in mappings:

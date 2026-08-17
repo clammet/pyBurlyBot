@@ -1,7 +1,6 @@
 from typing import Any
 
-from twisted.internet import reactor
-from twisted.internet.threads import blockingCallFromThread
+from util.threads import call_in_reactor
 
 from util import Mapping, argumentSplit, english_list
 from util.event import Event
@@ -9,7 +8,7 @@ from util.types import BotLike
 
 
 def _snapshot(bot: BotLike) -> dict[str, Any]:
-    return blockingCallFromThread(reactor, bot.state.snapshot)
+    return call_in_reactor(bot.state.snapshot)
 
 
 def state_command(event: Event, bot: BotLike) -> None:

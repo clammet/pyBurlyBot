@@ -4,9 +4,8 @@ from util.types import BotLike
 from util import Mapping, argumentSplit, functionHelp
 from util.options import Option, option_spec
 from util.settings import CORE_OPTIONS, Settings
+from util.threads import call_in_reactor
 
-from twisted.internet import reactor
-from twisted.internet.threads import blockingCallFromThread
 
 from json import JSONDecodeError, dumps, loads
 
@@ -51,7 +50,7 @@ def config(event: Event, bot: BotLike) -> None:
     or "this" (current channel (unless PM) current server.) module = "-" for non-module options. value should be JSON
     """
     if event.argument == "save":
-        blockingCallFromThread(reactor, Settings.saveOptions)
+        call_in_reactor(Settings.saveOptions)
         bot.say("Done (save is automatically done when setting config values.)")
         return
     elif event.argument:
@@ -115,7 +114,7 @@ def config(event: Event, bot: BotLike) -> None:
                 bot.setOption(opt, value, server=server, channel=channel, module=module)
             except (AttributeError, KeyError, TypeError, ValueError) as e:
                 return bot.say("Error: %s" % e)
-            blockingCallFromThread(reactor, Settings.saveOptions)
+            call_in_reactor(Settings.saveOptions)
             if msg:
                 bot.say(msg % (opt, servchan))
             else:

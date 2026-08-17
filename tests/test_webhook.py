@@ -41,7 +41,7 @@ def make_request(
 
 
 class FakeBot:
-    """Stand-in for the SetupContainer the module keeps from init()."""
+    """Stand-in for the bot Container the module keeps from init()."""
 
     network = "test-server"
 
@@ -416,7 +416,7 @@ class ReloadEventTest(TestCase):
 
     def test_unauthorized_reload_event_is_ignored(self) -> None:
         with (
-            patch.object(reload_module, "blockingCallFromThread") as call,
+            patch.object(reload_module, "call_in_reactor") as call,
             patch("builtins.print"),
         ):
             reload_module.reload_event(Event("reload", remote="10.0.0.5"), Mock())
@@ -424,7 +424,7 @@ class ReloadEventTest(TestCase):
 
     def test_authorized_reload_event_reloads_once_per_broadcast(self) -> None:
         with (
-            patch.object(reload_module, "blockingCallFromThread") as call,
+            patch.object(reload_module, "call_in_reactor") as call,
             patch("builtins.print"),
         ):
             for _ in range(2):  # same event delivered to two servers
@@ -436,7 +436,7 @@ class ReloadEventTest(TestCase):
             )
         self.assertEqual(call.call_count, 2)
         for args in call.call_args_list:
-            self.assertIs(args.args[1], reload_module._reallyReload)
+            self.assertIs(args.args[0], reload_module._reallyReload)
 
 
 class UpdateEventTest(TestCase):
@@ -551,11 +551,11 @@ class UpdateEventTest(TestCase):
                     "any": True,
                 },
             ),
-            patch.object(updaterelaunch, "blockingCallFromThread") as call,
+            patch.object(updaterelaunch, "call_in_reactor") as call,
             patch("builtins.print"),
         ):
             updaterelaunch._event_update_check(self.bot)
-        call.assert_called_once_with(self.reactor, updaterelaunch._reload_all)
+        call.assert_called_once_with(updaterelaunch._reload_all)
 
         with (
             patch.object(

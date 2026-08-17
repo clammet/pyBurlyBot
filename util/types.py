@@ -11,8 +11,9 @@ DatabaseQuery: TypeAlias = Callable[..., Any]
 class BotLike(Protocol):
     """Interface exposed to command handlers and module lifecycle hooks.
 
-    The concrete object can be a :class:`BotWrapper`, a setup container, or a
-    module-specific adapter.  Attribute fallback is intentional because addons
+    The concrete object is a :class:`Container` (init(), timers, posted events)
+    or a :class:`BotWrapper` around it (IRC events, adds say()); both may be
+    used from any thread.  Attribute fallback is intentional because addons
     and IRC operations are attached dynamically.
     """
 

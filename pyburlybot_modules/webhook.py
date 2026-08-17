@@ -77,7 +77,7 @@ _ALLOWED_METHODS = frozenset({"GET", "POST", "PUT"})
 
 
 class _State:
-    # setup container of the first server that loaded us; used to post (broadcast) events
+    # container of the first server that loaded us; used to post (broadcast) events
     bot: BotLike | None = None
 
 

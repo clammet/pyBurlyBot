@@ -21,10 +21,10 @@ from util import Mapping
 
 ### Modules should not import this! Unless they have a very good reason to.
 from util.settings import Settings
+from util.threads import call_in_reactor
 
 ### This is only something that modules that know what they are doing should do:
 from twisted.internet import reactor as _reactor
-from twisted.internet.threads import blockingCallFromThread
 ###
 
 reactor: Any = _reactor
@@ -112,7 +112,7 @@ def _check_and_apply(gitpath: str, branch: str) -> dict[str, bool]:
 
 def _restart() -> None:
     print("RESTARTING BOT")
-    blockingCallFromThread(reactor, Settings.shutdown, True)
+    call_in_reactor(Settings.shutdown, True)
 
 
 def update(event: Event, bot: BotLike) -> None:
@@ -182,7 +182,7 @@ def _event_update_check(bot: BotLike) -> None:
             )
     elif result["modules"]:
         print("UPDATERELAUNCH: module update merged, hot-reloading modules.")
-        blockingCallFromThread(reactor, _reload_all)
+        call_in_reactor(_reload_all)
     else:
         print("UPDATERELAUNCH: already up to date.")
 

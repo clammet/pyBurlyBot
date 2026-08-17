@@ -4,11 +4,10 @@ from typing import Any, ClassVar
 
 # suggested use would be for an alarm module or somesuch.
 
-from threading import current_thread
-
 from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
-from twisted.internet.threads import blockingCallFromThread
+
+from .threads import call_in_reactor
 
 
 class TimerExists(Exception):
@@ -67,13 +66,10 @@ class TimerInfo:
 class Timers:
     timers: ClassVar[dict[str, Timer]] = {}
 
-    # run f in the reactor thread; blockingCallFromThread would deadlock if
-    # invoked from the reactor thread itself, so call directly in that case
+    # timers are managed in the reactor thread; callable from any thread
     @classmethod
     def _callInReactor(cls, f: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        if current_thread().name == "MainThread":
-            return f(*args, **kwargs)
-        return blockingCallFromThread(reactor, f, *args, **kwargs)
+        return call_in_reactor(f, *args, **kwargs)
 
     @classmethod
     def _addTimer(
@@ -113,7 +109,14 @@ class Timers:
             raise TimerInvalidName("Invalid name (%s)." % name)
         # force interval and rep into float and int respectively.
         return cls._callInReactor(
-            cls._addTimer, name, float(interval), f, int(reps), startnow, *args, **kwargs
+            cls._addTimer,
+            name,
+            float(interval),
+            f,
+            int(reps),
+            startnow,
+            *args,
+            **kwargs,
         )
 
     @classmethod

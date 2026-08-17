@@ -3,14 +3,13 @@ from typing import Any
 
 # This seems like a bit of a waste, but it's difficult to implement this in Container
 #  because of the reliance on event data.
-from twisted.internet import reactor
-from twisted.internet.threads import blockingCallFromThread
 from twisted.python.failure import Failure
 
 from traceback import format_tb
 
 from .container import Container
 from .event import Event
+from .threads import call_in_reactor, isInIOThread
 
 
 class BotWrapper:
@@ -39,27 +38,22 @@ class BotWrapper:
     def checkSay(self, msg: str) -> bool:
         return self.checkSendMsg(self._replyTarget(), msg)
 
-    def isadmin(
-        self, module: str | None = None, inreactor: bool = False
-    ) -> bool | None:
-        if inreactor:
-            return self._isadmin(module)
-        else:
-            # blockingCallFromThread waits on a returned Deferred
-            return blockingCallFromThread(reactor, self._isadmin, module, True)
+    def isadmin(self, module: str | None = None) -> bool | None:
+        # From a worker thread the call can wait on a NickServ lookup (the
+        # blocking hop resolves a returned Deferred); in the reactor thread it
+        # can only use the identity already known for the event.
+        return call_in_reactor(self._isadmin, module, not isInIOThread())
 
     # _isadmin bypasses the containers get*Option methods so that it
     # only makes 1 call in the reactor and not 2 (in the case of module admin)
     def _isadmin(self, module: str | None = None, blocking: bool = False) -> Any:
         if not self.event.nick:
             return None
-        admins = self._botcont._settings.getOption("admins", inreactor=True)
+        admins = self._botcont._settings.getOption("admins")
         if module:
             madmins = None
             try:
-                madmins = self._botcont._settings.getOption(
-                    "admins", module=module, inreactor=True
-                )
+                madmins = self._botcont._settings.getOption("admins", module=module)
             except AttributeError:
                 pass
             if madmins:
@@ -109,21 +103,12 @@ class BotWrapper:
         opt: str,
         value: Any,
         channel: str | bool | None = None,
-        inreactor: bool = False,
         **kwargs: Any,
     ) -> None:
         channel = self._defaultChannel(channel, kwargs.get("module"))
-        if inreactor:
-            self._botcont._settings.setOption(opt, value, channel=channel, **kwargs)
-        else:
-            blockingCallFromThread(
-                reactor,
-                self._botcont._settings.setOption,
-                opt,
-                value,
-                channel=channel,
-                **kwargs,
-            )
+        call_in_reactor(
+            self._botcont._settings.setOption, opt, value, channel=channel, **kwargs
+        )
 
     # callback to handle module errors
     def _moduleerr(self, e: Any) -> None:

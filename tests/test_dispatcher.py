@@ -206,6 +206,27 @@ class DispatcherTest(TestCase):
             self.assertEqual(settings.defaults[("service", "enabled")], True)
             self.assertEqual(settings.addons.values["answer"], ("service", 42))
 
+    def test_init_and_get_mappings_receive_the_server_container(self) -> None:
+        # modules may keep the object they get in init() (timers, webhooks): it
+        # must be the same container handlers use later, not a setup-only proxy
+        files = {
+            "keeper": (
+                "from util import Mapping\n"
+                "SEEN = []\n"
+                "def init(bot):\n\tSEEN.append(bot)\n\treturn True\n"
+                "def get_mappings(bot):\n\tSEEN.append(bot)\n\treturn ()\n"
+            ),
+        }
+        with plugin_package(files) as (package, _):
+            registry = ModuleRegistry(package)
+            settings = make_settings(("keeper",))
+            dispatcher = load_dispatcher(settings, registry)
+
+            seen = dispatcher.get_module("keeper").SEEN
+            self.assertEqual(len(seen), 2)
+            self.assertIs(seen[0], settings.container)
+            self.assertIs(seen[1], settings.container)
+
     def test_activation_is_isolated_per_server(self) -> None:
         with plugin_package({"demo": "VALUE = 42\n"}) as (package, _):
             registry = ModuleRegistry(package)
@@ -321,7 +342,11 @@ class ContainerPostEventTest(TestCase):
         first, first_dispatcher = self._container("one", servers)
         _second, second_dispatcher = self._container("two", servers)
 
-        first.postEvent("reload", inreactor=True, broadcast=True, authorized=True)
+        with patch("util.container.reactor") as reactor:
+            first.postEvent("reload", broadcast=True, authorized=True)
+        # run what would have run in the reactor
+        func, *posted = reactor.callFromThread.call_args.args
+        func(*posted)
 
         first_dispatcher.dispatchEvent.assert_called_once()
         second_dispatcher.dispatchEvent.assert_called_once()
@@ -335,6 +360,6 @@ class ContainerPostEventTest(TestCase):
     def test_post_event_rejects_reserved_attributes_and_empty_type(self) -> None:
         container, _ = self._container("one", {})
         with self.assertRaises(ValueError):
-            container.postEvent("", inreactor=True)
+            container.postEvent("")
         with self.assertRaises(ValueError):
-            container.postEvent("custom", inreactor=True, type="x")
+            container.postEvent("custom", type="x")

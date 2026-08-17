@@ -17,6 +17,7 @@ import signal
 from twisted.python import log
 from twisted.internet import reactor as _reactor
 from twisted.internet.task import LoopingCall
+from twisted.python.threadable import registerAsIOThread
 
 # BurlyBot imports
 from util.settings import Settings, ConfigException
@@ -146,6 +147,9 @@ if __name__ == "__main__":
         print("Error:", e)
         exit(2)
 
+    # Module init() runs before reactor.run(): mark this thread as the reactor
+    # thread now so the bot API can tell reactor-side callers from worker threads.
+    registerAsIOThread()
     Settings.initialize(logger=templog)
 
     # Handle SIGHUP, signal received by screen children when screen receives SIGTERM

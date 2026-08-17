@@ -9,10 +9,9 @@ from util import Mapping
 
 ### Modules should not import this! Unless they have a very good reason to.
 from util.settings import ConfigException, Settings
+from util.threads import call_in_reactor
 
 ### This is only something that modules that know what they are doing should do:
-from twisted.internet import reactor
-from twisted.internet.threads import blockingCallFromThread
 ###
 
 # a broadcast "reload" event is delivered once per server; remember handled
@@ -29,7 +28,7 @@ def _reallyReload() -> None:
 def admin_reload_bot(event: Event, bot: BotLike) -> None:
     # reload settings, important to do only from within reactor
     # also refresh dispatchers
-    blockingCallFromThread(reactor, _reallyReload)
+    call_in_reactor(_reallyReload)
     # may never get sent if bot is disconnecting from this server after reload
     return bot.say("Done.")
 
@@ -52,7 +51,7 @@ def reload_event(event: Event, bot: BotLike) -> None:
             _seen_events.append(event_id)
     print("RELOAD: reloading configuration (event from %s)" % source)
     try:
-        blockingCallFromThread(reactor, _reallyReload)
+        call_in_reactor(_reallyReload)
     except ConfigException as e:
         # nobody to reply to: make the failure obvious in the log
         print("RELOAD: configuration NOT reloaded, config file error: %s" % e)

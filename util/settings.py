@@ -14,7 +14,6 @@ from atexit import register
 from twisted.internet.ssl import CertificateOptions, PrivateCertificate, platformTrust
 from twisted.python import log
 from twisted.internet import reactor as _reactor
-from twisted.internet.threads import blockingCallFromThread
 
 # BurlyBot
 from util.container import Container
@@ -22,6 +21,7 @@ from util.dispatcher import Dispatcher
 from util.moduleloader import ModuleRegistry
 from util.client import BurlyBotFactory
 from util.db import DBManager
+from util.threads import call_in_reactor
 from util.timer import Timers
 from util.options import Option
 from util.helpers import irc_casefold
@@ -320,13 +320,11 @@ class Server(BaseServer):
         return vals
 
     @staticmethod
-    def _copyOnReturn(value: Any, inreactor: bool, force: bool = False) -> Any:
+    def _copyOnReturn(value: Any, force: bool = False) -> Any:
         if force or type(value) in TYPE_COPY:  # copy value if compound datatype
-            return (
-                deepcopy(value)
-                if inreactor
-                else blockingCallFromThread(reactor, deepcopy, value)
-            )
+            # copy in the reactor thread so a concurrent setOption can't be
+            # observed half-applied
+            return call_in_reactor(deepcopy, value)
         return value
 
     @staticmethod
@@ -386,7 +384,6 @@ class Server(BaseServer):
         server: str | bool | None = None,
         default: Any = NoDefault,
         setDefault: bool = True,
-        inreactor: bool = False,
     ) -> Any:
         if opt in KEYS_DENY:
             raise ValueError("Access denied. (%s)" % opt)
@@ -396,14 +393,14 @@ class Server(BaseServer):
                 moduleopts = self._resolveServerModuleOpts(server)
                 found, value = self._lookupModuleOpt(moduleopts, module, opt, channel)
                 if found:
-                    return self._copyOnReturn(value, inreactor)
+                    return self._copyOnReturn(value)
             # fall back to global moduleopts (or server was False)
             global_moduleopts = self._globalModuleOpts()
             found, value = self._lookupModuleOpt(
                 global_moduleopts, module, opt, channel
             )
             if found:
-                return self._copyOnReturn(value, inreactor)
+                return self._copyOnReturn(value)
             if default is NoDefault:
                 raise AttributeError("No setting (%s) for module: %s" % (opt, module))
             else:
@@ -428,7 +425,7 @@ class Server(BaseServer):
                 # instead of falling back to KEYS_MAIN, raise error
                 raise ValueError("Server setting has no option: (%s) to get." % opt)
         if opt in KEYS_COPY:  # always copy: these are compound datatypes
-            return self._copyOnReturn(value, inreactor, force=True)
+            return self._copyOnReturn(value, force=True)
         else:
             return value
 
