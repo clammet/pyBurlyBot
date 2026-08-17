@@ -28,6 +28,7 @@ class Event:
         argument: str | None = None,
         account: str | None = None,
         priority: int = 10,
+        authorized: bool = False,
         **kwargs: Any,
     ) -> None:
         self.type = type
@@ -51,6 +52,12 @@ class Event:
         # kwargs is a dict of uncommon event attributes which will be looked up on attribute access
         self.kwargs = kwargs
 
+        # True when the event originates from a source the bot owner has
+        # authorized (e.g. a webhook request that carried the configured secret).
+        # Never set for ordinary IRC traffic. Handlers for privileged actions
+        # such as reload must check this before acting.
+        self.authorized = bool(authorized)
+
         # might be useful
         self.time = time()
         self.dtime = datetime.now(UTC)
@@ -59,7 +66,7 @@ class Event:
     def __repr__(self) -> str:
         return (
             "Event(type=%r, prefix=%r, params=%r, hostmask=%r, nick=%r, ident=%r, host=%r, "
-            "target=%r, msg=%r, command=%r, argument=%r, kwargs=%r, time=%r"
+            "target=%r, msg=%r, command=%r, argument=%r, authorized=%r, kwargs=%r, time=%r"
             % (
                 self.type,
                 self.prefix,
@@ -72,6 +79,7 @@ class Event:
                 self.msg,
                 self.command,
                 self.argument,
+                self.authorized,
                 self.kwargs,
                 self.time,
             )

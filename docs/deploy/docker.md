@@ -20,10 +20,14 @@ container:
 
 - `!update` (admin command) — fetch/merge `origin/<git_branch>`, hot-reload
   or restart as needed.
-- **Automatic checks** — set the `updaterelaunch` module option
-  `update_interval` (seconds) in the config to have the bot poll on its own.
-  Module-only changes hot-reload silently; core changes restart in place
-  (set `auto_restart` to `false` to instead merge and wait for an operator).
+- **Push-triggered updates** — an authorized `update` webhook (see "Webhooks"
+  below) runs the same check unattended: point a GitHub push webhook at
+  `<path_prefix>update` and every merge to `git_branch` is applied within
+  `update_debounce` seconds (default 30; a burst of pushes coalesces into one
+  check). Pushes to other branches, tags and GitHub `ping` deliveries are
+  ignored. Module-only changes hot-reload silently; core changes restart in
+  place (set `auto_restart` to `false` to instead merge and wait for an
+  operator). There is no polling timer.
 - **On container start** — the entrypoint fast-forwards the checkout before
   launching the bot, so even a months-old image comes up on current code.
   Dependencies are installed into a runtime-writable venv (`/opt/venv`), and
@@ -70,7 +74,7 @@ For this layout the config must point its relative paths into `state/`:
     "moduleopts": {
         "logindexsearch": {"indexdir": "state/logindex"},
         "selfpaste": {"wwwroot": "state/pastes/"},
-        "updaterelaunch": {"update_interval": 3600}
+        "updaterelaunch": {"update_debounce": 30}
     }
 }
 ```
@@ -86,6 +90,102 @@ Two hard rules:
 
 If no config exists on first start, the entrypoint writes a starter config
 to `state/BurlyBot.json` and exits 1 so you can edit it.
+
+## Webhooks: reload and update
+
+The `webhook` module exposes `<path_prefix><name>` (default `/hooks/<name>`)
+and `/health`. Two hook names are wired to actions out of the box:
+
+| Hook | Trigger | Effect (only when the request is authorized) |
+|---|---|---|
+| `reload` | orchestrator edited `state/BurlyBot.json` | re-read config, hot-reload modules (as `!reload`) |
+| `update` | GitHub push webhook / CI / manual | fetch+merge `origin/<git_branch>`, hot-reload or restart (as `!update`), debounced |
+
+Requests without the secret are accepted (`202`, `"authorized": false`) but
+both handlers ignore them, so nobody can trigger a fetch or reload by
+guessing the URL.
+
+### GitHub push → update
+
+The endpoint must be reachable by GitHub, i.e. behind your TLS reverse
+proxy. Publish the port to the host loopback (below) and add e.g. an nginx
+location — `path_prefix` lets you namespace it:
+
+```nginx
+location /pyburlybot/hooks/ {
+    proxy_pass http://127.0.0.1:8642/pyburlybot/hooks/;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    client_max_body_size 1m;
+}
+```
+
+Bot config: `"webhook": {"listen_host": "0.0.0.0", "listen_port": 8642,
+"secret": "<random>", "path_prefix": "/pyburlybot/hooks"}`.
+GitHub repo → Settings → Webhooks → Add: Payload URL
+`https://host/pyburlybot/hooks/update`, content type `application/json`,
+Secret = the same `<random>`, event "Just the push event". GitHub signs the
+body (`X-Hub-Signature-256`), which is what marks the delivery authorized.
+GitHub cannot filter by branch; the bot does (`git_branch`).
+
+Test without GitHub:
+
+```sh
+BODY='{"ref":"refs/heads/main"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $NF}')
+curl -X POST -H 'Content-Type: application/json' -H 'X-GitHub-Event: push' \
+     -H "X-Hub-Signature-256: sha256=$SIG" --data-binary "$BODY" \
+     https://host/pyburlybot/hooks/update
+```
+
+A plain `curl -X POST -H "Authorization: Bearer $SECRET" .../update` (no
+GitHub headers) also works and is not branch-filtered.
+
+### Applying external config changes: the reload webhook
+
+The bot owns `state/BurlyBot.json`, but sometimes tooling outside the
+container legitimately edits it (secret rotation, adding a channel). Instead
+of restarting the container, tell the bot to re-read the file through the
+`webhook` module:
+
+1. Enable the module (`"webhook"` in `modules`) and give it a secret. Inside
+   a container it must bind to all interfaces of the container's own network
+   namespace, and the port should be published **to localhost only**:
+
+   ```json
+   "moduleopts": {
+       "webhook": {
+           "listen_host": "0.0.0.0",
+           "listen_port": 8642,
+           "secret": "<long random string>"
+       }
+   }
+   ```
+
+   ```yaml
+   ports:
+     - "127.0.0.1:8642:8642"
+   ```
+
+2. After editing the config on the host:
+
+   ```sh
+   curl -fsS -X POST -H "Authorization: Bearer $SECRET" http://127.0.0.1:8642/hooks/reload
+   ```
+
+   The request returns `202` immediately; the bot then reloads the config
+   and hot-reloads all modules exactly as `!reload` does (no IRC disconnect
+   unless a server entry changed). Requests without the correct secret are
+   still accepted (`202`, `"authorized": false`) but the `reload` module
+   ignores them — only requests marked authorized trigger a reload. Look for
+   `RELOAD: reloading configuration (event from ...)` in the log.
+
+The `/hooks/` prefix is the module's `path_prefix` option (e.g. set it to
+`/pyburlybot/hooks` when a reverse proxy routes by path).
+`GET /health` on the same port answers `{"ok": true}` and can be used as a
+liveness probe for the listener itself. See the README section
+"Module-posted events and webhooks" for the module-side API. Note that one
+`secret` covers every hook: whoever holds it (e.g. GitHub) can trigger
+`reload` as well as `update`.
 
 ## Environment variables
 

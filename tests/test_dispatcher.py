@@ -232,3 +232,109 @@ class DispatcherTest(TestCase):
 
             self.assertIsNot(first_module, second_module)
             self.assertEqual(second_module.VALUE, 200)
+
+
+class PostedEventTest(TestCase):
+    """Events raised by modules (not the IRC connection) via dispatchEvent/postEvent."""
+
+    def _handler_module(self) -> dict[str, str]:
+        return {
+            "listener": (
+                "from util import Mapping\n"
+                "seen = []\n"
+                "def on_custom(event, bot):\n"
+                "    seen.append((event.type, event.authorized, event.payload, bot))\n"
+                "mappings = (Mapping(types=['custom'], function=on_custom),)\n"
+            ),
+        }
+
+    def test_dispatch_event_reaches_type_mappings_with_authorized_flag(self) -> None:
+        with plugin_package(self._handler_module()) as (package, _):
+            registry = ModuleRegistry(package)
+            settings = make_settings(("listener",))
+            settings.encoding = "utf-8"
+            settings.commandprefix = "!"
+            dispatcher = load_dispatcher(settings, registry)
+            container = SimpleNamespace(_moduleerr=Mock(), network="test-server")
+
+            def run_now(func: Any, *args: Any) -> Any:
+                func(*args)
+                return Mock()
+
+            with patch("util.dispatcher.deferToThread", side_effect=run_now):
+                dispatched = dispatcher.dispatchEvent(
+                    cast(Any, container), "custom", payload={"a": 1}, authorized=True
+                )
+                ignored = dispatcher.dispatchEvent(cast(Any, container), "nothing")
+
+            self.assertTrue(dispatched)
+            self.assertFalse(ignored)
+            seen = dispatcher.get_module("listener").seen
+            self.assertEqual(seen, [("custom", True, {"a": 1}, container)])
+
+    def test_dispatch_delegates_to_dispatch_event_with_the_bot_container(self) -> None:
+        dispatcher = Dispatcher(make_settings(()), ModuleRegistry("test_plugins"))
+        with patch.object(dispatcher, "dispatchEvent", return_value=True) as inner:
+            botinst = SimpleNamespace(container="the-container")
+            self.assertTrue(dispatcher.dispatch(botinst, "Joined", channel="#x"))
+        inner.assert_called_once_with("the-container", "Joined", channel="#x")
+
+    def test_events_default_to_unauthorized(self) -> None:
+        from util.event import Event
+
+        self.assertFalse(Event("privmsged", msg="hi").authorized)
+        self.assertTrue(Event("reload", authorized=True).authorized)
+
+
+class ContainerPostEventTest(TestCase):
+    def _container(self, label: str, servers: dict[str, Any]) -> Any:
+        from util.container import Container
+
+        dispatcher = Mock()
+        settings = SimpleNamespace(
+            serverlabel=label, dispatcher=dispatcher, servers=servers
+        )
+        with patch("util.container.Network"):
+            container = Container(settings)
+        servers[label] = SimpleNamespace(container=container)
+        return container, dispatcher
+
+    def test_post_event_dispatches_in_reactor_with_generated_event_id(self) -> None:
+        servers: dict[str, Any] = {}
+        container, dispatcher = self._container("one", servers)
+
+        with patch("util.container.reactor") as reactor:
+            container.postEvent("custom", payload=1)
+        reactor.callFromThread.assert_called_once()
+        func, event_type, broadcast, kwargs = reactor.callFromThread.call_args.args
+        self.assertEqual((event_type, broadcast), ("custom", False))
+        self.assertEqual(kwargs["payload"], 1)
+        self.assertIsInstance(kwargs["event_id"], str)
+        # run what would have run in the reactor
+        func(event_type, broadcast, kwargs)
+        dispatcher.dispatchEvent.assert_called_once_with(
+            container, "custom", payload=1, event_id=kwargs["event_id"]
+        )
+
+    def test_broadcast_posts_to_every_server_with_shared_event_id(self) -> None:
+        servers: dict[str, Any] = {}
+        first, first_dispatcher = self._container("one", servers)
+        _second, second_dispatcher = self._container("two", servers)
+
+        first.postEvent("reload", inreactor=True, broadcast=True, authorized=True)
+
+        first_dispatcher.dispatchEvent.assert_called_once()
+        second_dispatcher.dispatchEvent.assert_called_once()
+        first_kwargs = first_dispatcher.dispatchEvent.call_args.kwargs
+        second_kwargs = second_dispatcher.dispatchEvent.call_args.kwargs
+        self.assertEqual(first_kwargs["event_id"], second_kwargs["event_id"])
+        self.assertTrue(first_kwargs["authorized"])
+        # each server gets its own kwargs dict (dispatch mutates them)
+        self.assertIsNot(first_kwargs, second_kwargs)
+
+    def test_post_event_rejects_reserved_attributes_and_empty_type(self) -> None:
+        container, _ = self._container("one", {})
+        with self.assertRaises(ValueError):
+            container.postEvent("", inreactor=True)
+        with self.assertRaises(ValueError):
+            container.postEvent("custom", inreactor=True, type="x")

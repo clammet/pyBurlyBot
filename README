@@ -30,6 +30,36 @@ those validated addresses with failover, revalidates redirects, strips
 credentials on cross-origin redirects, and retains the original hostname for
 HTTP Host and TLS verification.
 
+Module-posted events and webhooks
+---------------------------------
+
+Modules can raise their own events with `bot.postEvent("name", **attributes)`
+(`broadcast=True` posts to every server). They dispatch like IRC events: to
+`Mapping(types=["name"])` handlers and to `send_and_wait` generators. Handlers
+receive the plain container (no reply target) unless the poster supplies one.
+Every `Event` carries `authorized` (default False); posted events may set it
+when the source really acts for the bot owner, and handlers of privileged
+actions must check it.
+
+The `webhook` module exposes `http://<listen_host>:<listen_port>/hooks/<name>`
+(the `/hooks/` prefix is the `path_prefix` option).
+Each request posts a `webhook` event (`event.hook`, `event.json`, `event.body`,
+`event.remote`, ...) to all servers; names in the `event_hooks` option are also
+posted as their own event type (default: `reload`). A request carrying the
+configured `secret` (`Authorization: Bearer <secret>` or an
+`X-Hub-Signature-256: sha256=<hmac>` body signature) is delivered with
+`event.authorized=True`; anything else still arrives, unauthorized. The `reload`
+module reloads the config file on an authorized `reload` event, so an
+orchestrator that edits `BurlyBot.json` externally can apply it with:
+
+    curl -X POST -H "Authorization: Bearer $SECRET" http://127.0.0.1:8642/hooks/reload
+
+Likewise `updaterelaunch` runs its git update on an authorized `update` event
+(debounced by `update_debounce` seconds), which is how a GitHub push webhook
+pointed at `/hooks/update` deploys merges to `git_branch` without polling.
+
+See `docs/examples/modules/webhookexample.py` and `docs/deploy/docker.md`.
+
 Command smoke-test client
 -------------------------
 

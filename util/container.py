@@ -10,6 +10,7 @@ from queue import Queue, Empty
 from collections import deque
 from time import time, sleep
 from functools import partial
+from uuid import uuid4
 
 from twisted.internet import reactor as _reactor
 from twisted.internet.threads import blockingCallFromThread
@@ -189,6 +190,54 @@ class Container:
     def _getAddon(self, addonname: str) -> Callable[..., Any]:
         return self._settings.getAddon(addonname)
 
+    # Event posting. Lets modules raise their own events (any type name) which
+    # are dispatched exactly like IRC events: to Mapping(types=[...]) handlers
+    # and to send_and_wait() generators. Handlers receive the plain Container
+    # (no reply target) unless the poster supplies target/nick kwargs, so
+    # bot.say() is not available to them by default.
+    def _postEvent(
+        self, event_type: str, broadcast: bool, eventkwargs: dict[str, Any]
+    ) -> None:
+        if broadcast:
+            containers = [
+                server.container for server in self._settings.servers.values()
+            ]
+        else:
+            containers = [self]
+        for container in containers:
+            dispatcher = container._settings.dispatcher
+            if dispatcher is None:
+                continue
+            # dispatch mutates its kwargs: give every server its own copy
+            dispatcher.dispatchEvent(container, event_type, **dict(eventkwargs))
+
+    def postEvent(
+        self,
+        event_type: str,
+        *,
+        broadcast: bool = False,
+        inreactor: bool = False,
+        **eventkwargs: Any,
+    ) -> None:
+        """Post an event of ``event_type`` to this server's dispatcher.
+
+        broadcast=True posts to every connected server. Keyword arguments become
+        Event attributes; pass authorized=True only when the source really is
+        trusted (see Event.authorized). An event_id (shared across a broadcast)
+        is added unless supplied. Fire-and-forget: returns immediately.
+        """
+        if not isinstance(event_type, str) or not event_type:
+            raise ValueError("event_type must be a non-empty string.")
+        if "type" in eventkwargs or "encoding" in eventkwargs:
+            raise ValueError("type and encoding are reserved event attributes.")
+        # shared by every per-server copy of a broadcast, so handlers of
+        # process-wide actions (e.g. reload) can act once per post
+        eventkwargs.setdefault("event_id", uuid4().hex)
+        if inreactor:
+            self._postEvent(event_type, broadcast, eventkwargs)
+        else:
+            reactor.callFromThread(self._postEvent, event_type, broadcast, eventkwargs)
+
     def getAddon(self, addonname: str) -> Callable[..., Any]:
         return blockingCallFromThread(reactor, self._getAddon, addonname)
 
@@ -315,3 +364,12 @@ class SetupContainer:
 
     def getAddon(self, addonname: str) -> Callable[..., Any]:
         return self.container._getAddon(addonname)
+
+    # NOTE: during init() the event map is still being built, so handlers of
+    # modules that have not finished loading yet will not see events posted here.
+    def postEvent(
+        self, event_type: str, *, broadcast: bool = False, **eventkwargs: Any
+    ) -> None:
+        self.container.postEvent(
+            event_type, broadcast=broadcast, inreactor=True, **eventkwargs
+        )

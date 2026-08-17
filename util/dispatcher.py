@@ -234,8 +234,20 @@ class Dispatcher:
         return any(mapping.admin for mapping in mappings)
 
     def dispatch(self, botinst: Any, event_type: str, **eventkwargs: Any) -> bool:
+        """Dispatch an event raised by the IRC protocol instance ``botinst``."""
+        return self.dispatchEvent(botinst.container, event_type, **eventkwargs)
+
+    def dispatchEvent(
+        self, container: Container, event_type: str, **eventkwargs: Any
+    ) -> bool:
+        """Dispatch ``event_type`` to every mapped handler and waiting generator.
+
+        This is the entry point for events that do not come from the IRC
+        connection (module-posted events, webhooks, ...). Must be called from
+        the reactor thread. Returns True if anything was dispatched.
+        """
         settings = self.settings
-        cont_or_wrap = botinst.container
+        cont_or_wrap: Container | BotWrapper = container
         event = None
         # Case insensitivity for event_type lookups
         l_event_type = event_type.lower()
