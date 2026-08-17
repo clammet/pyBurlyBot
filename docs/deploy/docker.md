@@ -101,9 +101,11 @@ and `/health`. Two hook names are wired to actions out of the box:
 | `reload` | orchestrator edited `state/BurlyBot.json` | re-read config, hot-reload modules (as `!reload`) |
 | `update` | GitHub push webhook / CI / manual | fetch+merge `origin/<git_branch>`, hot-reload or restart (as `!update`), debounced |
 
-Requests without the secret are accepted (`202`, `"authorized": false`) but
-both handlers ignore them, so nobody can trigger a fetch or reload by
-guessing the URL.
+Secrets are configured **per hook** (`secrets` option), so the GitHub secret
+authorizes `update` only and the orchestrator's secret authorizes `reload`
+only. Requests without the right secret are accepted (`202`,
+`"authorized": false`) but both handlers ignore them, so nobody can trigger a
+fetch or reload by guessing the URL.
 
 ### GitHub push → update
 
@@ -120,7 +122,7 @@ location /pyburlybot/hooks/ {
 ```
 
 Bot config: `"webhook": {"listen_host": "0.0.0.0", "listen_port": 8642,
-"secret": "<random>", "path_prefix": "/pyburlybot/hooks"}`.
+"secrets": {"update": "<random>"}, "path_prefix": "/pyburlybot/hooks"}`.
 GitHub repo → Settings → Webhooks → Add: Payload URL
 `https://host/pyburlybot/hooks/update`, content type `application/json`,
 Secret = the same `<random>`, event "Just the push event". GitHub signs the
@@ -147,7 +149,8 @@ container legitimately edits it (secret rotation, adding a channel). Instead
 of restarting the container, tell the bot to re-read the file through the
 `webhook` module:
 
-1. Enable the module (`"webhook"` in `modules`) and give it a secret. Inside
+1. Enable the module (`"webhook"` in `modules`) and give the `reload` hook a
+   secret. Inside
    a container it must bind to all interfaces of the container's own network
    namespace, and the port should be published **to localhost only**:
 
@@ -156,7 +159,7 @@ of restarting the container, tell the bot to re-read the file through the
        "webhook": {
            "listen_host": "0.0.0.0",
            "listen_port": 8642,
-           "secret": "<long random string>"
+           "secrets": {"reload": "<long random string>"}
        }
    }
    ```
@@ -183,9 +186,9 @@ The `/hooks/` prefix is the module's `path_prefix` option (e.g. set it to
 `/pyburlybot/hooks` when a reverse proxy routes by path).
 `GET /health` on the same port answers `{"ok": true}` and can be used as a
 liveness probe for the listener itself. See the README section
-"Module-posted events and webhooks" for the module-side API. Note that one
-`secret` covers every hook: whoever holds it (e.g. GitHub) can trigger
-`reload` as well as `update`.
+"Module-posted events and webhooks" for the module-side API. Each hook has
+its own secret: GitHub's `update` secret cannot trigger `reload`, and vice
+versa. `!webhook` lists which hooks currently have one configured.
 
 ## Environment variables
 

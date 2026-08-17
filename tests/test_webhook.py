@@ -49,7 +49,7 @@ class FakeBot:
         self.options = {
             "listen_host": "127.0.0.1",
             "listen_port": 8642,
-            "secret": "",
+            "secrets": {},
             "event_hooks": ["reload"],
             "max_body": DEFAULT_MAX_BODY,
             "path_prefix": "/hooks/",
@@ -75,7 +75,7 @@ class FakeBot:
 
 class WebhookModuleTest(TestCase):
     def setUp(self) -> None:
-        self.bot = FakeBot(secret="s3cret")  # noqa: S106 - test fixture
+        self.bot = FakeBot(secrets={"reload": "s3cret", "Update": "upd"})
         webhook_module._State.bot = self.bot
         self.addCleanup(setattr, webhook_module._State, "bot", None)
 
@@ -104,6 +104,33 @@ class WebhookModuleTest(TestCase):
     def test_no_configured_secret_never_authorizes(self) -> None:
         request = make_request(headers={"Authorization": "Bearer "})
         self.assertFalse(webhook_module.is_authorized(request, ""))
+
+    def test_hook_secret_lookup_is_per_hook_and_case_insensitive(self) -> None:
+        secrets = {"reload": "a", "Update": "b", "empty": ""}
+        self.assertEqual(webhook_module.hook_secret(secrets, "reload"), "a")
+        self.assertEqual(webhook_module.hook_secret(secrets, "update"), "b")
+        self.assertEqual(webhook_module.hook_secret(secrets, "empty"), "")
+        self.assertEqual(webhook_module.hook_secret(secrets, "other"), "")
+        self.assertEqual(webhook_module.hook_secret(None, "reload"), "")
+        self.assertEqual(webhook_module.hook_secret("s3cret", "reload"), "")
+
+    def test_secret_authorizes_only_its_own_hook(self) -> None:
+        bearer = {"Authorization": "Bearer s3cret"}  # the reload secret
+        _, own = webhook_module.handle(make_request("/hooks/reload", headers=bearer))
+        _, other = webhook_module.handle(make_request("/hooks/update", headers=bearer))
+        _, none = webhook_module.handle(make_request("/hooks/github", headers=bearer))
+        self.assertTrue(own["authorized"])
+        self.assertFalse(other["authorized"])
+        self.assertFalse(none["authorized"])
+        # and the update secret works for update (config key case does not matter)
+        _, upd = webhook_module.handle(
+            make_request("/hooks/update", headers={"Authorization": "Bearer upd"})
+        )
+        self.assertTrue(upd["authorized"])
+        self.assertEqual(
+            [kw["authorized"] for _, kw in self.bot.posted],
+            [True, True, False, False, True],  # reload posts 2 events (promoted)
+        )
 
     def test_hook_names_are_validated_and_lowercased(self) -> None:
         self.assertEqual(webhook_module.hook_name("/hooks/Reload"), "reload")

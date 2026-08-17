@@ -26,7 +26,7 @@ def on_webhook(event: Event, bot: BotLike) -> None:
     channel = bot.getOption("announce_channel", module="webhookexample")
     if not channel:
         return
-    # event.authorized is True only when the request carried the configured secret
+    # event.authorized is True only when the request proved this hook's own secret
     trust = "authorized" if event.authorized else "anonymous"
     summary = event.json if event.json is not None else event.body[:80]
     bot.sendmsg(

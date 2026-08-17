@@ -45,10 +45,12 @@ The `webhook` module exposes `http://<listen_host>:<listen_port>/hooks/<name>`
 (the `/hooks/` prefix is the `path_prefix` option).
 Each request posts a `webhook` event (`event.hook`, `event.json`, `event.body`,
 `event.remote`, ...) to all servers; names in the `event_hooks` option are also
-posted as their own event type (default: `reload`). A request carrying the
-configured `secret` (`Authorization: Bearer <secret>` or an
+posted as their own event type (default: `reload`, `update`). Secrets are per
+hook (`secrets` option: `{"reload": "...", "update": "..."}`); a request that
+proves the secret *for that hook* (`Authorization: Bearer <secret>` or an
 `X-Hub-Signature-256: sha256=<hmac>` body signature) is delivered with
-`event.authorized=True`; anything else still arrives, unauthorized. The `reload`
+`event.authorized=True`; anything else still arrives, unauthorized. A secret
+never authorizes another hook. The `reload`
 module reloads the config file on an authorized `reload` event, so an
 orchestrator that edits `BurlyBot.json` externally can apply it with:
 

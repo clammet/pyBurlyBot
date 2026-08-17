@@ -10,11 +10,14 @@ from util.types import BotLike
 # "update" event, so modules can listen for a purpose-named event without
 # knowing it came from HTTP.
 #
-# Requests that present the configured secret are marked event.authorized=True:
+# Secrets are per hook (secrets option: {"<name>": "<secret>"}). A request to
+# <prefix><name> that proves knowledge of secrets[<name>] is marked
+# event.authorized=True:
 #   Authorization: Bearer <secret>
 #   X-Hub-Signature-256: sha256=<hex HMAC-SHA256 of the raw body>   (GitHub style)
-# Anything else is still delivered, with event.authorized=False. Handlers that
-# do privileged things must check event.authorized themselves.
+# A secret authorizes only its own hook. Anything else is still delivered, with
+# event.authorized=False. Handlers that do privileged things must check
+# event.authorized themselves.
 #
 # Event attributes: hook, method, path, headers, args, body, json, remote,
 # authorized, event_id. Handlers get the plain Container (no reply target).
@@ -45,12 +48,14 @@ OPTIONS = {
         "TCP port of the webhook listener. 0 disables it. Takes effect on reload.",
         8642,
     ),
-    "secret": Option(
-        str,
-        "Shared secret that marks a request as authorized (event.authorized). Send it "
-        "as 'Authorization: Bearer <secret>' or sign the body with HMAC-SHA256 in "
-        "'X-Hub-Signature-256: sha256=<hex>'. Empty: no request is ever authorized.",
-        "",
+    "secrets": Option(
+        dict,
+        'Per-hook secrets: {"<hook name>": "<secret>"}. A request to <path_prefix><name> '
+        "is authorized (event.authorized) only if it proves knowledge of the secret for "
+        "that exact name, via 'Authorization: Bearer <secret>' or an HMAC-SHA256 body "
+        "signature in 'X-Hub-Signature-256: sha256=<hex>'. Hooks without an entry are "
+        "never authorized.",
+        {},
         secret=True,
         writeonly=True,
     ),
@@ -87,8 +92,18 @@ def _option(name: str) -> Any:
     return _State.bot.getOption(name, module="webhook", server=False)
 
 
+def hook_secret(secrets: Any, hook: str) -> str:
+    """The secret configured for ``hook`` (case-insensitive name), or ''."""
+    if not isinstance(secrets, dict):
+        return ""
+    for name, value in secrets.items():
+        if str(name).lower() == hook and value:
+            return str(value)
+    return ""
+
+
 def is_authorized(request: WebhookRequest, secret: str) -> bool:
-    """True if ``request`` proves knowledge of ``secret``."""
+    """True if ``request`` proves knowledge of ``secret`` (the hook's own secret)."""
     if not secret:
         return False
     expected = secret.encode("utf-8")
@@ -144,7 +159,7 @@ def handle(request: WebhookRequest) -> tuple[int, Any]:
         except JSONDecodeError, UnicodeDecodeError:
             return 400, {"error": "invalid JSON body"}
 
-    authorized = is_authorized(request, str(_option("secret") or ""))
+    authorized = is_authorized(request, hook_secret(_option("secrets"), hook))
     promoted = hook != "webhook" and hook in {
         str(name).lower() for name in (_option("event_hooks") or ())
     }
@@ -184,7 +199,7 @@ def handle(request: WebhookRequest) -> tuple[int, Any]:
 
 
 def webhook_status(event: Event, bot: BotLike) -> None:
-    """webhook: show the listener address and whether a secret is configured."""
+    """webhook: show the listener address and which hooks have a secret configured."""
     address = WebhookListener.address()
     if address is None:
         listening = "not listening"
@@ -193,13 +208,14 @@ def webhook_status(event: Event, bot: BotLike) -> None:
             bot.getOption("path_prefix", module="webhook", server=False)
         )
         listening = "listening on http://%s:%d%s<name>" % (*address, prefix)
-    secret = bot.getOption("secret", module="webhook", server=False)
+    secrets = bot.getOption("secrets", module="webhook", server=False) or {}
+    secured = sorted(str(name) for name, value in secrets.items() if value)
     hooks = bot.getOption("event_hooks", module="webhook", server=False) or []
     bot.say(
-        "Webhook %s; secret %s; hooks posted as their own event: %s"
+        "Webhook %s; hooks with a secret: %s; hooks posted as their own event: %s"
         % (
             listening,
-            "configured" if secret else "NOT configured (all requests anonymous)",
+            ", ".join(secured) or "none (all requests anonymous)",
             ", ".join(str(name) for name in hooks) or "none",
         )
     )
