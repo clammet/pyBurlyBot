@@ -78,7 +78,7 @@ TYPE_COPY = {list, tuple, dict}
 PROPERTIES_MAP = {"admins": "_admins"}
 
 OPTION_DESC = {
-    "admins": "IRC account names allowed to run administrator commands.",
+    "admins": "IRC account names allowed to run administrator commands (identified nicknames on networks without IRCv3 account capabilities).",
     "altnicks": "nicknames to be tried when desired nick is in use/unavailable.",
     "encoding": "encoding to be used for sending and received messages.",
     "insecure": "allow legacy nickname-only administrator authentication.",
@@ -399,7 +399,9 @@ class Server(BaseServer):
                     return self._copyOnReturn(value, inreactor)
             # fall back to global moduleopts (or server was False)
             global_moduleopts = self._globalModuleOpts()
-            found, value = self._lookupModuleOpt(global_moduleopts, module, opt, channel)
+            found, value = self._lookupModuleOpt(
+                global_moduleopts, module, opt, channel
+            )
             if found:
                 return self._copyOnReturn(value, inreactor)
             if default is NoDefault:

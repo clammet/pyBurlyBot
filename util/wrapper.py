@@ -45,11 +45,12 @@ class BotWrapper:
         if inreactor:
             return self._isadmin(module)
         else:
-            return blockingCallFromThread(reactor, self._isadmin, module)
+            # blockingCallFromThread waits on a returned Deferred
+            return blockingCallFromThread(reactor, self._isadmin, module, True)
 
     # _isadmin bypasses the containers get*Option methods so that it
     # only makes 1 call in the reactor and not 2 (in the case of module admin)
-    def _isadmin(self, module: str | None = None) -> bool | None:
+    def _isadmin(self, module: str | None = None, blocking: bool = False) -> Any:
         if not self.event.nick:
             return None
         admins = self._botcont._settings.getOption("admins", inreactor=True)
@@ -63,9 +64,21 @@ class BotWrapper:
                 pass
             if madmins:
                 admins.extend(madmins)
-        return self._botcont._settings.is_admin(
-            self.event.nick, self.event.account, admins
-        )
+        settings = self._botcont._settings
+        nick, account = self.event.nick, self.event.account
+        botinst = self._botcont._botinst
+        # No IRCv3 account identity on this network: ask NickServ (only possible
+        # when the caller can wait on the reply, i.e. from a module thread).
+        if (
+            blocking
+            and account is None
+            and botinst is not None
+            and getattr(botinst, "_legacy_account_lookup", False)
+        ):
+            d = botinst.resolveLegacyAccount(nick)
+            d.addCallback(lambda resolved: settings.is_admin(nick, resolved, admins))
+            return d
+        return settings.is_admin(nick, account, admins)
 
     # option getter/setters
     # if channel is None, default module options to the current channel;

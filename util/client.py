@@ -19,6 +19,7 @@ from twisted.words.protocols.irc import (
     parsemsg,
 )
 from twisted.internet import reactor as _reactor
+from twisted.internet.defer import Deferred
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.python import log
 from twisted.python.failure import Failure
@@ -33,6 +34,7 @@ from math import floor
 
 # BurlyBot imports
 from .helpers import (
+    irc_casefold,
     processHostmask,
     processListReply,
     PrefixMap,
@@ -131,6 +133,14 @@ class BurlyBot(IRCClient, TimeoutMixin):
     _exceptlist: dict[str, list[tuple[str, str, str, str | None]]]
     _invitelist: dict[str, list[tuple[str, str, str, str | None]]]
     _accounts: dict[str, str]
+    # Legacy (no IRCv3 account caps) identity: NickServ STATUS lookups.
+    _legacy_account_lookup: bool = False
+    _status_cache: dict[str, tuple[float, str | None]]
+    _status_pending: dict[str, list[Deferred[str | None]]]
+    _status_timeouts: dict[str, Any]
+    legacy_status_timeout: float = 10.0
+    legacy_status_ttl: float = 60.0
+    legacy_status_negative_ttl: float = 5.0
 
     # http://twistedmatrix.com/trac/browser/trunk/twisted/words/protocols/irc.py
     # irc_ and RPL_ methods are duplicated here verbatim so that we can dispatch higher level
@@ -205,6 +215,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
         self._cap_values: dict[str, str | None] = {}
         self._cap_ended = False
         self._sasl_payload_sent = False
+        self._legacy_account_lookup = False
         self._reallySendLine("CAP LS 302")
         if self.password is not None:
             self._reallySendLine("PASS %s" % self.password)
@@ -223,9 +234,11 @@ class BurlyBot(IRCClient, TimeoutMixin):
             if not self._capabilities.intersection(
                 {"account-notify", "account-tag", "extended-join"}
             ):
+                self._legacy_account_lookup = True
                 print(
                     "WARNING: server %s did not enable IRC account identity; "
-                    "secure administrator commands will be unavailable."
+                    "administrator commands will be verified with NickServ STATUS "
+                    "(admins are matched by identified nickname)."
                     % self.settings.serverlabel,
                     file=sys.stderr,
                 )
@@ -320,6 +333,112 @@ class BurlyBot(IRCClient, TimeoutMixin):
             self._accounts.pop(nick.casefold(), None)
             return None
         return self._accounts.get(nick.casefold())
+
+    ###
+    ### Legacy account identity (networks without IRCv3 account capabilities)
+    ###
+    def _legacyStatusState(
+        self,
+    ) -> tuple[
+        dict[str, tuple[float, str | None]],
+        dict[str, list[Deferred[str | None]]],
+        dict[str, Any],
+    ]:
+        if not hasattr(self, "_status_cache"):
+            self._status_cache = {}
+            self._status_pending = {}
+            self._status_timeouts = {}
+        return self._status_cache, self._status_pending, self._status_timeouts
+
+    def _needsLegacyAccount(self, event_type: str, msg: str | None) -> bool:
+        """True when an admin command needs a NickServ STATUS check before dispatch."""
+        if not self._legacy_account_lookup or not msg:
+            return False
+        dispatcher = getattr(self, "dispatcher", None)
+        if dispatcher is None:
+            return False
+        return bool(dispatcher.isAdminCommand(event_type, msg))
+
+    def _forgetLegacyAccount(self, nick: str) -> None:
+        cache, _, _ = self._legacyStatusState()
+        cache.pop(irc_casefold(nick), None)
+
+    def resolveLegacyAccount(self, nick: str) -> Deferred[str | None]:
+        """Resolve a nick's services identity via NickServ STATUS.
+
+        Fires with the nick (as reported by services) when the user is identified
+        (STATUS level 3), otherwise with None. Results are cached briefly.
+        """
+        cache, pending, timeouts = self._legacyStatusState()
+        key = irc_casefold(nick)
+        now = time()
+        cached = cache.get(key)
+        if cached and cached[0] > now:
+            d: Deferred[str | None] = Deferred()
+            d.callback(cached[1])
+            return d
+        d = Deferred()
+        waiters = pending.get(key)
+        if waiters is not None:
+            waiters.append(d)
+            return d
+        pending[key] = [d]
+        timeouts[key] = reactor.callLater(
+            self.legacy_status_timeout, self._legacyStatusTimeout, key
+        )
+        self.sendLine("PRIVMSG NickServ :STATUS %s" % nick)
+        return d
+
+    def _legacyStatusTimeout(self, key: str) -> None:
+        _, _, timeouts = self._legacyStatusState()
+        timeouts.pop(key, None)
+        log.msg("NickServ STATUS lookup for %s timed out" % key, isError=True)
+        self._finishLegacyStatus(key, None, cache_result=False)
+
+    def _finishLegacyStatus(
+        self, key: str, account: str | None, cache_result: bool = True
+    ) -> None:
+        cache, pending, timeouts = self._legacyStatusState()
+        call = timeouts.pop(key, None)
+        if call is not None and call.active():
+            call.cancel()
+        if cache_result:
+            ttl = self.legacy_status_ttl if account else self.legacy_status_negative_ttl
+            cache[key] = (time() + ttl, account)
+        for d in pending.pop(key, ()):
+            d.callback(account)
+
+    def _abandonLegacyStatus(self) -> None:
+        """Drop pending STATUS lookups (connection gone); waiters get None."""
+        _, pending, _ = self._legacyStatusState()
+        for key in list(pending):
+            self._finishLegacyStatus(key, None, cache_result=False)
+
+    def _handleLegacyStatusReply(self, prefix: str, message: str) -> None:
+        """Consume ``STATUS <nick> <level>`` notices from NickServ."""
+        sender, _, _ = processHostmask(prefix)
+        if sender is None or sender.casefold() != "nickserv":
+            return
+        parts = message.split()
+        if len(parts) < 3 or parts[0].upper() != "STATUS" or not parts[2].isdigit():
+            return
+        nick, level = parts[1], int(parts[2])
+        self._finishLegacyStatus(irc_casefold(nick), nick if level >= 3 else None)
+
+    def _dispatchMessage(
+        self, event_type: str, nick: str | None, msg: str, **kwargs: Any
+    ) -> None:
+        account = self._account_for(kwargs["prefix"])
+        if account is None and nick and self._needsLegacyAccount(event_type, msg):
+            d = self.resolveLegacyAccount(nick)
+            d.addCallback(
+                lambda resolved: self.dispatch(
+                    self, event_type, msg=msg, nick=nick, account=resolved, **kwargs
+                )
+            )
+            d.addErrback(log.err)
+            return
+        self.dispatch(self, event_type, msg=msg, nick=nick, account=account, **kwargs)
 
     def dataReceived(self, data: bytes) -> None:
         self.resetTimeout()
@@ -438,6 +557,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
         if self.state:
             self.state._userquit(nick)
         self._accounts.pop(nick.casefold(), None)
+        self._forgetLegacyAccount(nick)
         self.dispatch(
             self,
             "userQuit",
@@ -520,23 +640,20 @@ class BurlyBot(IRCClient, TimeoutMixin):
             message = " ".join(m["normal"])
 
         nick, ident, host = processHostmask(prefix)
-        account = self._account_for(prefix)
         if nick == self.nickname:
             # take note of our prefix! (for message length calculation
             self.prefixlen = len(prefix)
         # These are actually messages, ctcp's aren't dispatched here
-        self.dispatch(
-            self,
+        self._dispatchMessage(
             "privmsged",
+            nick,
+            message,
             prefix=prefix,
             params=params,
             hostmask=user,
             target=channel,
-            msg=message,
-            nick=nick,
             ident=ident,
             host=host,
-            account=account,
         )
 
     def irc_NOTICE(self, prefix: str, params: list[str]) -> None:
@@ -560,22 +677,21 @@ class BurlyBot(IRCClient, TimeoutMixin):
             message = " ".join(m["normal"])
 
         nick, ident, host = processHostmask(prefix)
-        account = self._account_for(prefix)
         if nick == self.nickname:
             # take note of our prefix! (for message length calculation
             self.prefixlen = len(prefix)
-        self.dispatch(
-            self,
+        if self._legacy_account_lookup:
+            self._handleLegacyStatusReply(prefix, message)
+        self._dispatchMessage(
             "noticed",
+            nick,
+            message,
             prefix=prefix,
             params=params,
             hostmask=user,
             target=channel,
-            msg=message,
-            nick=nick,
             ident=ident,
             host=host,
-            account=account,
         )
 
     def irc_NICK(self, prefix: str, params: list[str]) -> None:
@@ -588,6 +704,8 @@ class BurlyBot(IRCClient, TimeoutMixin):
         account = self._accounts.pop(nick.casefold(), None)
         if account:
             self._accounts[params[0].casefold()] = account
+        self._forgetLegacyAccount(nick)
+        self._forgetLegacyAccount(params[0])
 
         if nick == self.nickname:
             # take note of our prefix! (for message length calculation
@@ -1369,6 +1487,9 @@ class BurlyBot(IRCClient, TimeoutMixin):
         self._invitelist = {}
         self._accounts: dict[str, str] = {}
         self._message_tags = {}
+        self._status_cache = {}
+        self._status_pending = {}
+        self._status_timeouts = {}
         self.altindex = 0
         # arm the inactivity timeout; resetTimeout in dataReceived only reschedules
         self.setTimeout(self.timeOut)
@@ -1380,6 +1501,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
     def connectionLost(self, reason: Failure) -> None:  # type: ignore[override]
         self.setTimeout(None)
         IRCClient.connectionLost(self, reason)
+        self._abandonLegacyStatus()
         self.container._setBotinst(None)
         if self.state:
             self.state._resetnetwork()

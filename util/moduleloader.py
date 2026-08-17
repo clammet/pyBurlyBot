@@ -29,6 +29,10 @@ class ModuleRegistry:
 
         try:
             module = import_module("%s.%s" % (self.package, name))
+        except ModuleNotFoundError as exc:
+            missing_module = exc.name or "%s.%s" % (self.package, name)
+            self.import_errors[name] = "Module not found: %s" % missing_module
+            return None
         except Exception:  # noqa: BLE001 - third-party module import boundary
             self.import_errors[name] = format_exc()
             return None

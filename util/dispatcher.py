@@ -217,6 +217,22 @@ class Dispatcher:
         else:
             return list(self.eventmap.get("privmsged", {}).get("command", {}).values())
 
+    def isAdminCommand(self, event_type: str, msg: str | None) -> bool:
+        """Cheaply check whether ``msg`` invokes an admin-only command for ``event_type``."""
+        prefix = self.settings.commandprefix
+        if not msg or not prefix or not msg.startswith(prefix):
+            return False
+        parsed_command, _ = commandSplit(msg)
+        if parsed_command is None:
+            return False
+        command = parsed_command[len(prefix) :].lower()
+        mappings = (
+            self.eventmap.get(event_type.lower(), {})
+            .get("command", {})
+            .get(command, ())
+        )
+        return any(mapping.admin for mapping in mappings)
+
     def dispatch(self, botinst: Any, event_type: str, **eventkwargs: Any) -> bool:
         settings = self.settings
         cont_or_wrap = botinst.container
