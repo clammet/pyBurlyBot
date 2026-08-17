@@ -246,7 +246,9 @@ def check_games_callback(bot: BotLike) -> None:
             )
 
 
-def setup_timer(bot: BotLike) -> None:
+def setup_timer(event: Event, bot: BotLike) -> None:
+    # Started on "signedon" (not in init) so the timer captures the real bot
+    # container: the init-time SetupContainer has no dbQuery/sendmsg.
     try:
         Timers.addtimer(
             "%s:%s" % (TIMER_NAME, bot.network),
@@ -283,8 +285,10 @@ def init(bot: BotLike) -> bool:
         "gdq_alert2_idx",
         """CREATE INDEX gdq_alert2_idx ON gdq_alert(source, source_name, game_text);""",
     )
-    setup_timer(bot)
     return True
 
 
-mappings = (Mapping(command=("gdq", "agdq", "sgdq"), function=gdq),)
+mappings = (
+    Mapping(command=("gdq", "agdq", "sgdq"), function=gdq),
+    Mapping(types=("signedon",), function=setup_timer),
+)
