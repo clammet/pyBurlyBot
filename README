@@ -15,6 +15,20 @@ mandatory on 1 January 2027, but has not yet documented how issued keys are sent
 with requests. Request a key through its API feedback form before that date and
 update this module when Datamuse supplies the integration details.
 
+API helper modules
+------------------
+
+API helper modules (`googleapi`, `wordsapi`, `openweathermap_api`, ...) own the
+HTTP call, API-key handling, and error reporting for a service, and return
+parsed, typed structures — small tuples or frozen dataclasses with type
+annotations as the contract — never raw JSON dicts. Consumers should not need
+to know the wire format. `wordsapi`'s frozen dataclasses are the preferred
+style for anything beyond a couple of fields.
+
+Known stragglers to remediate when touched: `openweathermap_api` returns raw
+`dict[str, Any]` from `get_weather`/`get_forecast` (weather.py does the JSON
+digging), and `googleapi.google_youtube_details` leaks a raw dict.
+
 Outbound HTTP
 -------------
 
