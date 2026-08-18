@@ -307,6 +307,74 @@ class PostedEventTest(TestCase):
         self.assertTrue(Event("reload", authorized=True).authorized)
 
 
+class SendmsgHookTest(TestCase):
+    def _hook_module(self, override: str) -> dict[str, str]:
+        return {
+            "hooks": (
+                "from util import Mapping\n"
+                "seen = []\n"
+                "def first(event, bot):\n"
+                "    seen.append(('first', event.msg, event.nick, event.split))\n"
+                "def second(event, bot):\n"
+                "    seen.append(('second', event.msg, event.nick, event.split))\n"
+                "mappings = (\n"
+                "    Mapping(types=['sendmsg'], function=first, priority=1,"
+                " override=%s),\n"
+                "    Mapping(types=['sendmsg'], function=second, priority=2),\n"
+                ")\n" % override
+            ),
+        }
+
+    def _load(self, override: str) -> Any:
+        registry = ModuleRegistry("test_plugins")
+        settings = make_settings(("hooks",))
+        settings.encoding = "utf-8"
+        settings.commandprefix = "!"
+        return load_dispatcher(settings, registry)
+
+    def test_override_flag_is_derived_from_loaded_mappings(self) -> None:
+        with plugin_package(self._hook_module("True")):
+            dispatcher = self._load("True")
+            self.assertTrue(dispatcher.sendmsg_override)
+        with plugin_package(self._hook_module("False")):
+            dispatcher = self._load("False")
+            self.assertFalse(dispatcher.sendmsg_override)
+
+    def test_uninitialized_dispatcher_defaults_to_no_override(self) -> None:
+        dispatcher = Dispatcher(make_settings(()), ModuleRegistry("test_plugins"))
+        self.assertFalse(dispatcher.sendmsg_override)  # was an AttributeError
+
+    def test_sendmsg_handlers_run_as_an_ordered_chain(self) -> None:
+        with plugin_package(self._hook_module("False")):
+            dispatcher = self._load("False")
+            container = SimpleNamespace(_moduleerr=Mock(), network="test-server")
+
+            def run_now(func: Any, *args: Any) -> Any:
+                func(*args)
+                deferred = Mock()
+                deferred.addCallback.side_effect = lambda cb: cb(None)
+                return deferred
+
+            with patch("util.dispatcher.deferToThread", side_effect=run_now):
+                dispatched = dispatcher.dispatchEvent(
+                    cast(Any, container),
+                    "sendmsg",
+                    target="#chan",
+                    nick="botnick",
+                    msg="hello",
+                    split=False,
+                )
+
+            self.assertTrue(dispatched)
+            self.assertEqual(
+                dispatcher.get_module("hooks").seen,
+                [
+                    ("first", "hello", "botnick", False),
+                    ("second", "hello", "botnick", False),
+                ],
+            )
+
+
 class ContainerPostEventTest(TestCase):
     def _container(self, label: str, servers: dict[str, Any]) -> Any:
         from util.container import Container

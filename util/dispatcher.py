@@ -22,6 +22,9 @@ class Dispatcher:
     def __init__(self, settings: Any, registry: ModuleRegistry) -> None:
         self.waitmap: dict[str | None, set[WaitData]] = {}
         self.eventmap: dict[str, dict[str, Any]] = {}
+        # True when any loaded sendmsg mapping has override=True: the bot then
+        # leaves message delivery to the hooks. Recomputed by _build_event_map.
+        self.sendmsg_override = False
         self.settings = settings
         self.registry = registry
         self.serverlabel = settings.serverlabel
@@ -32,7 +35,6 @@ class Dispatcher:
         self.eventmap = {}
         # don't clear waitmap on reload to allow for still waiting functions to pass
         # it's also self managed (hopefully)
-        self.MSGHOOKS = False
 
         settings = self.settings
         configured = settings.allowmodules or settings.modules
@@ -172,6 +174,16 @@ class Dispatcher:
             event_mappings["regex"].sort(key=attrgetter("priority"))
             for command_mappings in event_mappings["command"].values():
                 command_mappings.sort(key=attrgetter("priority"))
+        sendmsg_mappings = self.eventmap.get("sendmsg")
+        self.sendmsg_override = sendmsg_mappings is not None and any(
+            mapping.override
+            for group in (
+                sendmsg_mappings["instant"],
+                sendmsg_mappings["regex"],
+                *sendmsg_mappings["command"].values(),
+            )
+            for mapping in group
+        )
 
     def _add_mappings(self, module: ModuleType) -> None:
         eventmap = self.eventmap
@@ -188,8 +200,6 @@ class Dispatcher:
                     event_type, {"instant": [], "regex": [], "command": {}}
                 )
 
-                if event_type == "sendmsg" and mapping.override:
-                    self.MSGHOOKS = True
                 if not mapping.command and not mapping.regex:
                     event_mappings["instant"].append(mapping)
 
@@ -287,11 +297,23 @@ class Dispatcher:
                 )
             if self.debug >= 2:
                 print("DISPATCHING: %s" % event)
+            # sendmsg handlers run as one Deferred chain (#36): sequential in
+            # priority order, so hooks observe outbound messages deterministically
+            chain: list[tuple[MappingFunction, Event]] | None = (
+                [] if l_event_type == "sendmsg" else None
+            )
+
+            def fire(func: MappingFunction, ev: Event) -> None:
+                if chain is None:
+                    self._dispatchreally(func, ev, cont_or_wrap, self.debug)
+                else:
+                    chain.append((func, ev))
+
             # priority 0 is a total override: no further handlers run for this event
             overridden = False
             # lol dispatcher is 100 more simple now, but at the cost of more dict...
             for mapping in eventmap[l_event_type]["instant"]:
-                self._dispatchreally(mapping.function, event, cont_or_wrap, self.debug)
+                fire(mapping.function, event)
                 dispatched = True
                 if mapping.priority == 0:
                     overridden = True
@@ -304,9 +326,7 @@ class Dispatcher:
                     ):
                         # TODO: Do we bot.say("access denied") ?
                         continue
-                    self._dispatchreally(
-                        mapping.function, event, cont_or_wrap, self.debug
-                    )
+                    fire(mapping.function, event)
                     dispatched = True
                     if mapping.priority == 0:
                         overridden = True
@@ -321,12 +341,12 @@ class Dispatcher:
                         # later match can't overwrite regex_match mid-handler
                         regex_event = copy(event)
                         regex_event.regex_match = result
-                        self._dispatchreally(
-                            mapping.function, regex_event, cont_or_wrap, self.debug
-                        )
+                        fire(mapping.function, regex_event)
                         dispatched = True
                         if mapping.priority == 0:
                             break
+            if chain:
+                self._dispatchchain(chain, cont_or_wrap, self.debug)
 
         if l_event_type in self.waitmap:
             # special map to deal with WaitData
@@ -377,6 +397,26 @@ class Dispatcher:
         # callback behind the same worker boundary so the reactor remains responsive.
         d = deferToThread(func, event, cast(BotLike, cont_or_wrap))
         # add errback
+        d.addErrback(cont_or_wrap._moduleerr)
+
+    @staticmethod
+    def _dispatchchain(
+        chain: list[tuple[MappingFunction, Event]],
+        cont_or_wrap: Container | BotWrapper,
+        debug: int,
+    ) -> None:
+        if debug >= 2:
+            print("DISPATCHING CHAIN TO: %r" % [func for func, _event in chain])
+
+        def _next(_result: Any, func: MappingFunction, ev: Event) -> Any:
+            return deferToThread(func, ev, cast(BotLike, cont_or_wrap))
+
+        first_func, first_event = chain[0]
+        d = deferToThread(first_func, first_event, cast(BotLike, cont_or_wrap))
+        for func, ev in chain[1:]:
+            d.addCallback(_next, func, ev)
+        # one errback at the end: a failing hook skips the rest of the chain
+        # and reports once
         d.addErrback(cont_or_wrap._moduleerr)
 
     def addWaitData(self, wd: WaitData) -> None:

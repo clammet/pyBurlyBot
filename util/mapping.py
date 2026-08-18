@@ -36,8 +36,12 @@ class Mapping:
                 command arg can be a list of commands,
         priority = priority for dispatch ordering (Not really useful since module functions are called in
                 a thread pool.
-        override = If True will override internal bot routines (currently only implemented on sendmsg.)
-                If False, internal bot routines will run as well as the event being dispatched. (Default)
+        override = Only meaningful on sendmsg mappings: if any loaded sendmsg
+                mapping sets override=True the bot stops sending outbound lines
+                itself and the hooks own delivery (sendmsg(direct=True)
+                bypasses this). If False, internal bot routines run as well as
+                the event being dispatched. (Default) sendmsg handlers run
+                sequentially as a Deferred chain in priority order.
         admin = If True, only dispatch when invoked by an admin user
         hidden = If True, do not display in standard command listing, e.g. help
                 If False behave normally with regards to listing

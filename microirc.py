@@ -121,6 +121,7 @@ TEST_COMMANDS: tuple[TestCommand, ...] = (
     TestCommand("state", "state", "network"),
     TestCommand("tell", "tell", "{nick} harness test"),
     TestCommand("tell", "remind", "microirc-nobody at invalid-date harness test"),
+    TestCommand("tell", "tells"),
     TestCommand("time", "time", "{nick}", multiline=True),
     TestCommand("urbandictionary", "urbandictionary", "pyBurlyBot"),
     TestCommand("urlinfo", "head", "https://example.com/"),

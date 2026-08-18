@@ -1264,24 +1264,24 @@ class BurlyBot(IRCClient, TimeoutMixin):
         split: bool = False,
         **kwargs: Any,
     ) -> None:
-        # check if there's hooks, if there is, dispatch, if not, send directly
-        if self.dispatcher.MSGHOOKS and not direct:
-            self.dispatch(self, "sendmsg", target=target, msg=msg, **kwargs)
+        # hooks and observers always see the same event shape; when an
+        # override hook is loaded it owns delivery (bypassed with direct=True)
+        self.dispatch(
+            self,
+            "sendmsg",
+            target=target,
+            nick=self.nickname,
+            msg=msg,
+            split=split,
+            **kwargs,
+        )
+        if self.dispatcher.sendmsg_override and not direct:
+            return
+        if split:
+            for m in self._buildmsg(target, msg, split, **kwargs):
+                self.sendLine(m)
         else:
-            self.dispatch(
-                self,
-                "sendmsg",
-                target=target,
-                nick=self.nickname,
-                msg=msg,
-                split=split,
-                **kwargs,
-            )
-            if split:
-                for m in self._buildmsg(target, msg, split, **kwargs):
-                    self.sendLine(m)
-            else:
-                self.sendLine(self._buildmsg(target, msg, split, **kwargs))
+            self.sendLine(self._buildmsg(target, msg, split, **kwargs))
 
     # will return true if sendmsg can proceed without truncation, false otherwise.
     # will provide incorrect results if any sendmsg hooks change lengths of messages
