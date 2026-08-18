@@ -111,11 +111,14 @@ class BurlyBotProtocolTest(TestCase):
         protocol.irc_PRIVMSG("nick!ident@host", ["BurlyBot", "!config save"])
         self.assertEqual(protocol.dispatch.call_args.kwargs["account"], "Alice")
 
-    def make_legacy_protocol(self) -> BurlyBot:
+    # returns the dispatch Mock separately: protocol.dispatch is declared as a
+    # plain Callable, so accessing Mock APIs through it would not type-check
+    def make_legacy_protocol(self) -> tuple[BurlyBot, Mock]:
         protocol = self.make_protocol()
         protocol.nickname = "BurlyBot"
         protocol.state = None
-        protocol.dispatch = Mock()
+        dispatch = Mock()
+        protocol.dispatch = dispatch
         protocol.dispatcher = Mock()
         protocol.dispatcher.isAdminCommand = lambda event_type, msg: msg.startswith(
             "!config"
@@ -123,26 +126,24 @@ class BurlyBotProtocolTest(TestCase):
         protocol.register("BurlyBot")
         protocol.irc_CAP("server", ["BurlyBot", "LS", "multi-prefix sasl"])
         cast(StringTransport, protocol.transport).clear()
-        return protocol
+        return protocol, dispatch
 
     def test_missing_account_caps_enable_legacy_lookup(self) -> None:
-        protocol = self.make_legacy_protocol()
+        protocol, _ = self.make_legacy_protocol()
         self.assertTrue(protocol._legacy_account_lookup)
 
     def test_legacy_admin_command_waits_for_nickserv_status(self) -> None:
-        protocol = self.make_legacy_protocol()
+        protocol, dispatch = self.make_legacy_protocol()
         protocol.irc_PRIVMSG("Alice!ident@host", ["BurlyBot", "!config save"])
         transport = cast(StringTransport, protocol.transport)
         self.assertIn(b"PRIVMSG NickServ :STATUS Alice\r\n", transport.value())
-        protocol.dispatch.assert_not_called()
+        dispatch.assert_not_called()
 
         protocol.irc_NOTICE(
             "NickServ!service@rizon.net", ["BurlyBot", "STATUS Alice 3"]
         )
         privmsg_calls = [
-            call
-            for call in protocol.dispatch.call_args_list
-            if call.args[1] == "privmsged"
+            call for call in dispatch.call_args_list if call.args[1] == "privmsged"
         ]
         self.assertEqual(len(privmsg_calls), 1)
         self.assertEqual(privmsg_calls[0].kwargs["account"], "Alice")
@@ -150,42 +151,40 @@ class BurlyBotProtocolTest(TestCase):
 
         # cached: a second admin command dispatches immediately without STATUS
         transport.clear()
-        protocol.dispatch.reset_mock()
+        dispatch.reset_mock()
         protocol.irc_PRIVMSG("Alice!ident@host", ["BurlyBot", "!config load"])
         self.assertNotIn(b"STATUS", transport.value())
-        self.assertEqual(protocol.dispatch.call_args.kwargs["account"], "Alice")
+        self.assertEqual(dispatch.call_args.kwargs["account"], "Alice")
 
     def test_legacy_status_not_identified_yields_no_account(self) -> None:
-        protocol = self.make_legacy_protocol()
+        protocol, dispatch = self.make_legacy_protocol()
         protocol.irc_PRIVMSG("Mallory!ident@host", ["BurlyBot", "!config save"])
         protocol.irc_NOTICE(
             "NickServ!service@rizon.net", ["BurlyBot", "STATUS Mallory 1"]
         )
         privmsg_calls = [
-            call
-            for call in protocol.dispatch.call_args_list
-            if call.args[1] == "privmsged"
+            call for call in dispatch.call_args_list if call.args[1] == "privmsged"
         ]
         self.assertEqual(len(privmsg_calls), 1)
         self.assertIsNone(privmsg_calls[0].kwargs["account"])
 
     def test_legacy_status_ignores_spoofed_reply(self) -> None:
-        protocol = self.make_legacy_protocol()
+        protocol, dispatch = self.make_legacy_protocol()
         protocol.irc_PRIVMSG("Mallory!ident@host", ["BurlyBot", "!config save"])
         protocol.irc_NOTICE("Mallory!ident@host", ["BurlyBot", "STATUS Mallory 3"])
         self.assertFalse(
-            [c for c in protocol.dispatch.call_args_list if c.args[1] == "privmsged"]
+            [c for c in dispatch.call_args_list if c.args[1] == "privmsged"]
         )
         protocol._abandonLegacyStatus()
 
     def test_legacy_lookup_skipped_for_non_admin_commands(self) -> None:
-        protocol = self.make_legacy_protocol()
+        protocol, dispatch = self.make_legacy_protocol()
         protocol.irc_PRIVMSG("Alice!ident@host", ["BurlyBot", "!help"])
         self.assertNotIn(b"STATUS", cast(StringTransport, protocol.transport).value())
-        self.assertIsNone(protocol.dispatch.call_args.kwargs["account"])
+        self.assertIsNone(dispatch.call_args.kwargs["account"])
 
     def test_legacy_cache_invalidated_on_nick_change(self) -> None:
-        protocol = self.make_legacy_protocol()
+        protocol, _ = self.make_legacy_protocol()
         protocol.irc_PRIVMSG("Alice!ident@host", ["BurlyBot", "!config save"])
         protocol.irc_NOTICE(
             "NickServ!service@rizon.net", ["BurlyBot", "STATUS Alice 3"]
