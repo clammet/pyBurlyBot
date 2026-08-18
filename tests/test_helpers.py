@@ -3,7 +3,14 @@ from datetime import datetime
 from unittest import TestCase
 from warnings import catch_warnings, simplefilter
 
-from util.helpers import argumentSplit, match_hostmask, parseDateTime
+from util.helpers import (
+    MONTH_SECS,
+    WEEK_SECS,
+    argumentSplit,
+    distance_of_time_in_words,
+    match_hostmask,
+    parseDateTime,
+)
 
 
 def _epoch(year: int, month: int, day: int, hour: int, minute: int) -> int:
@@ -64,6 +71,28 @@ class HelpersTest(TestCase):
             parseDateTime("on 20th", _epoch(2026, 12, 25, 9, 0)),
             _epoch(2027, 1, 20, 0, 0),
         )
+
+    def test_relative_datespecs_allow_spaces(self) -> None:
+        t = 1_700_000_000
+        self.assertEqual(parseDateTime("3 days", t), t + 3 * 24 * 60 * 60)
+        self.assertEqual(parseDateTime("in 3 days", t), t + 3 * 24 * 60 * 60)
+        self.assertEqual(parseDateTime("1h 30m", t), t + 90 * 60)
+        self.assertEqual(parseDateTime("2 weeks", t), t + 2 * WEEK_SECS)
+        self.assertEqual(parseDateTime("3days", t), t + 3 * 24 * 60 * 60)
+
+    def test_time_distance_uses_coarse_units(self) -> None:
+        self.assertEqual(distance_of_time_in_words(0, 3 * MONTH_SECS), "3 months ago")
+        self.assertEqual(distance_of_time_in_words(0, 2 * WEEK_SECS), "2 weeks ago")
+        self.assertEqual(
+            distance_of_time_in_words(0, WEEK_SECS + 2 * 24 * 60 * 60),
+            "1 week and 2 days ago",
+        )
+        # future direction, as .remind reports it
+        self.assertEqual(
+            distance_of_time_in_words(3 * MONTH_SECS + 1, 1), "in 3 months"
+        )
+        # fine granularity unchanged below a week
+        self.assertEqual(distance_of_time_in_words(0, 3 * 24 * 60 * 60), "3 days ago")
 
     def test_hostmask_glob_is_anchored_and_uses_rfc1459_casefold(self) -> None:
         self.assertTrue(match_hostmask("Nick!ident@example.com", "n?ck!*@*.com"))

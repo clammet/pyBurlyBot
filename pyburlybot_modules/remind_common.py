@@ -16,6 +16,25 @@ from util.settings import ConfigException
 from util.types import BotLike
 
 
+def _pull_spaced_units(dtime: str, msg: str) -> tuple[str, str]:
+    """Support spaced datespecs ("in 3 days", "in 1h 30m") by pulling tokens
+    from the start of msg into dtime while doing so changes what the datespec
+    resolves to."""
+    # fixed reference time so equal specs resolve equal across calls
+    tref = timegm(gmtime())
+    resolved = parseDateTime(dtime, tref)
+    while msg:
+        head, rest = argumentSplit(msg, 2)
+        if not head:
+            break
+        candidate = "%s %s" % (dtime, head)
+        cand_resolved = parseDateTime(candidate, tref)
+        if cand_resolved is None or cand_resolved == resolved:
+            break
+        dtime, msg, resolved = candidate, rest or "", cand_resolved
+    return dtime, msg
+
+
 def parse_remind_args(
     argument: str | None,
 ) -> tuple[str, str, str, str | None]:
@@ -38,7 +57,10 @@ def parse_remind_args(
         return "time", target, "", msg
     if not msg:
         return "msg", target, "", msg
-    return "ok", target, "%s %s" % (dtime1, dtime2), msg
+    dtime, msg = _pull_spaced_units(("%s %s" % (dtime1, dtime2)).strip(), msg)
+    if not msg:
+        return "msg", target, "", msg
+    return "ok", target, dtime, msg
 
 
 def resolve_user_time(

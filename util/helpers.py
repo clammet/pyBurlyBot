@@ -17,6 +17,12 @@ WDAY_MAP = dict(enumerate(day_name))
 WDAY_SHORTMAP = dict(enumerate(day_abbr))
 
 
+# synodic lunar month, the same constant TIMEREGEX parsing uses, so
+# "in 3months" round-trips to "in 3 months"
+MONTH_SECS = 60 * 60 * 24 * 29.53059
+WEEK_SECS = 60 * 60 * 24 * 7
+
+
 # adapted http://stackoverflow.com/a/2119512
 def days_hours_minutes(td: timedelta) -> tuple[int, int, int, int]:
     return td.days, td.seconds // 3600, (td.seconds // 60) % 60, td.seconds % 60
@@ -46,13 +52,23 @@ def distance_of_time_in_words(
         else:
             return "in just a moment"
 
+    months = int(diff // MONTH_SECS)
+    diff -= months * MONTH_SECS
+    weeks = int(diff // WEEK_SECS)
+    diff -= weeks * WEEK_SECS
     td = timedelta(seconds=diff)
     days, hours, minutes, seconds = days_hours_minutes(td)
 
     chunks = []
     terms: tuple[tuple[str, int], ...]
-    if hours or days or minutes > 10:
-        terms = (("day", days), ("hour", hours), ("minute", minutes))
+    if months or weeks or days or hours or minutes > 10:
+        terms = (
+            ("month", months),
+            ("week", weeks),
+            ("day", days),
+            ("hour", hours),
+            ("minute", minutes),
+        )
     else:
         terms = (
             ("day", days),
@@ -330,14 +346,15 @@ def functionHelp(f: Callable[..., Any], sub: str | None = None) -> str:
 
 # this is getting a bit out of hand...
 # TODO: check if this is very bad.
+# \s* allows spaced specs ("3 days", "1h 30m") as well as the packed originals
 TIMEREGEX = re.compile(
     r"""
-(?:(\d*\.?\d+)months?)?
-(?:(\d*\.?\d+)w(?:eeks?)?)?
-(?:(\d*\.?\d+)d(?:ays?)?)?
-(?:(\d*\.?\d+)h(?:ours?)?)?
-(?:(\d*\.?\d+)m(?:in(?:s|utes?)?)?)?
-(?:(\d*\.?\d+)s(?:ec(?:s|onds?)?)?)?
+(?:(\d*\.?\d+)\s*months?\s*)?
+(?:(\d*\.?\d+)\s*w(?:eeks?)?\s*)?
+(?:(\d*\.?\d+)\s*d(?:ays?)?\s*)?
+(?:(\d*\.?\d+)\s*h(?:ours?)?\s*)?
+(?:(\d*\.?\d+)\s*m(?:in(?:s|utes?)?)?\s*)?
+(?:(\d*\.?\d+)\s*s(?:ec(?:s|onds?)?)?)?
 """,
     re.VERBOSE | re.IGNORECASE,
 )
@@ -464,13 +481,11 @@ def parseDateTime(
         m.group(1) or m.group(2) or m.group(3) or m.group(4) or m.group(5) or m.group(6)
     ):
         if m.group(1):
-            # months
-            t += (
-                _parseDigit(m.group(1)) * 60 * 60 * 24 * 29.53059
-            )  # Just to be silly, a synodic lunar month
+            # months (just to be silly, a synodic lunar month)
+            t += _parseDigit(m.group(1)) * MONTH_SECS
         if m.group(2):
             # weeks
-            t += _parseDigit(m.group(2)) * 60 * 60 * 24 * 7
+            t += _parseDigit(m.group(2)) * WEEK_SECS
         if m.group(3):
             # days
             t += _parseDigit(m.group(3)) * 60 * 60 * 24
