@@ -1,3 +1,4 @@
+import sqlite3
 from util.event import Event
 from util.types import BotLike
 from util.db import Query
@@ -40,6 +41,53 @@ SELFREMINDFORMAT = "{0}, reminder: {1} - set {2}, arrived {3}."
 MAX_REMIND_TIME = 157700000  # 5 year
 
 
+def _render_tells(
+    bot: BotLike, nick: str | None, tells: list[sqlite3.Row], toldtime: int
+) -> None:
+    collate = len(tells) > 3
+    lines: list[str] = []
+    for tell in tells:
+        if tell["remind"]:
+            source = tell["source"]
+            if source:
+                data = [
+                    nick,
+                    source,
+                    tell["msg"],
+                    distance_of_time_in_words(tell["origintime"], toldtime),
+                    distance_of_time_in_words(
+                        tell["telltime"], toldtime, suffix="late"
+                    ),
+                ]
+                fmt = REMINDFORMAT
+            else:
+                data = [
+                    nick,
+                    tell["msg"],
+                    distance_of_time_in_words(tell["origintime"], toldtime),
+                    distance_of_time_in_words(
+                        tell["telltime"], toldtime, suffix="late"
+                    ),
+                ]
+                fmt = SELFREMINDFORMAT
+        else:
+            data = [
+                nick,
+                tell["source"],
+                tell["msg"],
+                distance_of_time_in_words(tell["telltime"], toldtime),
+            ]
+            fmt = TELLFORMAT
+        if collate:
+            lines.append(fmt.format(*data))
+        else:
+            bot.say(fmt, strins=data, fcfs=True)
+    if collate:
+        msg = "Tells/reminds for (%s): %%s" % nick
+        title = "Tells/reminds for (%s)" % nick
+        pastehelper(bot, msg, items=lines, altmsg="%s", force=True, title=title)
+
+
 def deliver_tell(event: Event, bot: BotLike) -> None:
     # resolve_nick over get_username: one db call, and no user-table check that
     # could miss a first-time user whose row user_update hasn't written yet
@@ -58,54 +106,35 @@ def deliver_tell(event: Event, bot: BotLike) -> None:
     )
     tells.sort(key=lambda row: (row["telltime"], row["id"]))
     if tells:
-        collate = False
-        lines: list[str] | None = None
-        if len(tells) > 3:
-            collate = True
-            lines = []
-        for tell in tells:
-            if tell["remind"]:
-                source = tell["source"]
-                if source:
-                    data = [
-                        event.nick,
-                        source,
-                        tell["msg"],
-                        distance_of_time_in_words(tell["origintime"], toldtime),
-                        distance_of_time_in_words(
-                            tell["telltime"], toldtime, suffix="late"
-                        ),
-                    ]
-                    fmt = REMINDFORMAT
-                else:
-                    data = [
-                        event.nick,
-                        tell["msg"],
-                        distance_of_time_in_words(tell["origintime"], toldtime),
-                        distance_of_time_in_words(
-                            tell["telltime"], toldtime, suffix="late"
-                        ),
-                    ]
-                    fmt = SELFREMINDFORMAT
-                if collate and lines is not None:
-                    lines.append(fmt.format(*data))
-                else:
-                    bot.say(fmt, strins=data, fcfs=True)
-            else:
-                data = [
-                    event.nick,
-                    tell["source"],
-                    tell["msg"],
-                    distance_of_time_in_words(tell["telltime"], toldtime),
-                ]
-                if collate and lines is not None:
-                    lines.append(TELLFORMAT.format(*data))
-                else:
-                    bot.say(TELLFORMAT, strins=data, fcfs=True)
-        if collate and lines is not None:
-            msg = "Tells/reminds for (%s): %%s" % event.nick
-            title = "Tells/reminds for (%s)" % event.nick
-            pastehelper(bot, msg, items=lines, altmsg="%s", force=True, title=title)
+        _render_tells(bot, event.nick, tells, toldtime)
+
+
+def tells(event: Event, bot: BotLike) -> None:
+    """tells [n]. Repeats your nth most recent batch of delivered tells/reminds (default: the last batch)."""
+    user = bot.getModule("users").resolve_nick(bot, event.nick) or event.nick
+    n = 1
+    if event.argument:
+        try:
+            # allow ".tells -2" to mean the same as ".tells 2"
+            n = abs(int(event.argument.strip()))
+        except ValueError:
+            return bot.say(functionHelp(tells))
+        n = max(n, 1)
+    # batches are delivery groups: every tell delivered in one go shares a toldtime
+    batch = bot.dbQuery(
+        """SELECT id, source, telltime, origintime, toldtime, remind, msg
+            FROM tell WHERE user=? AND delivered=1 AND toldtime=(
+                SELECT DISTINCT toldtime FROM tell
+                WHERE user=? AND delivered=1
+                ORDER BY toldtime DESC LIMIT 1 OFFSET ?);""",
+        (user, user, n - 1),
+    )
+    if not batch:
+        return bot.say(
+            "No delivered tells found%s." % ("" if n == 1 else " that far back")
+        )
+    batch.sort(key=lambda row: (row["telltime"], row["id"]))
+    _render_tells(bot, event.nick, batch, batch[0]["toldtime"])
 
 
 def tell(event: Event, bot: BotLike) -> None:
@@ -239,6 +268,11 @@ def init(bot: BotLike) -> bool:
         "tell_deliv_idx",
         """CREATE INDEX tell_deliv_idx ON tell(user, delivered, telltime);""",
     )
+    # delivered-batch lookups for .tells
+    bot.dbCheckCreateTable(
+        "tell_told_idx",
+        """CREATE INDEX tell_told_idx ON tell(user, delivered, toldtime);""",
+    )
 
     # Modules storing "users" in their own tables should register to be notified when a username is changed (by the alias module)
     bot.getModule("users").REGISTER_UPDATE(bot.network, _user_rename)
@@ -249,4 +283,5 @@ mappings = (
     Mapping(types=["privmsged"], function=deliver_tell),
     Mapping(command=("tell", "ask"), function=tell),
     Mapping(command="remind", function=remind),
+    Mapping(command=("tells", "lasttells"), function=tells),
 )
