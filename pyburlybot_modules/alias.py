@@ -292,7 +292,7 @@ def aliasuser(bot: BotLike, arg1: str, arg2: str, source: str) -> None:
 
     # see comments just above
     if target:
-        users_module.rename_user(bot.network, target, source)
+        users_module.rename_user(bot, target, source)
         # find all groups that alias is a part of, and change membership to use "user" (source)
         bot.dbQuery("""UPDATE aliasgrp SET user=? WHERE user = ?;""", (source, arg2))
     # add origin mapping so that origins can't get aliased

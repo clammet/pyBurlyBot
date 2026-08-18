@@ -114,8 +114,6 @@ TEST_COMMANDS: tuple[TestCommand, ...] = (
     TestCommand("google", "google", "pyBurlyBot"),
     TestCommand("google", "gis", "pyBurlyBot"),
     TestCommand("location", "location", "{nick}"),
-    TestCommand("logindexsearch", "log", "1 microirc"),
-    TestCommand("logindexsearch", "logstats", "microirc"),
     TestCommand("random", "rand", "10"),
     TestCommand("random", "choice", "alpha beta gamma"),
     TestCommand("random", "coinflip"),

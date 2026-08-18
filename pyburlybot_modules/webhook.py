@@ -156,7 +156,7 @@ def handle(request: WebhookRequest) -> tuple[int, Any]:
     if request.body and "json" in request.header("content-type").lower():
         try:
             payload = loads(request.body)
-        except JSONDecodeError, UnicodeDecodeError:
+        except (JSONDecodeError, UnicodeDecodeError):
             return 400, {"error": "invalid JSON body"}
 
     authorized = is_authorized(request, hook_secret(_option("secrets"), hook))

@@ -80,10 +80,6 @@ class MicroIRCHarnessTest(TestCase):
             self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
             self.assertEqual(runtime["datadir"], str(runtime_dir / "data"))
             self.assertEqual(
-                runtime["moduleopts"]["logindexsearch"]["indexdir"],
-                str(runtime_dir / "logindex"),
-            )
-            self.assertEqual(
                 runtime["moduleopts"]["selfpaste"]["wwwroot"],
                 str(runtime_dir / "pastes"),
             )

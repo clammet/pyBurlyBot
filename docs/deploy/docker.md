@@ -61,7 +61,6 @@ Everything that must survive a container recreate lives in one directory,
 state/
 ├── BurlyBot.json    # config — the bot REWRITES this (!config), see below
 ├── data/            # sqlite DBs (WAL — mount the directory, never one file)
-├── logindex/        # Whoosh chat-log search index
 └── .heartbeat       # touched every 30s for the healthcheck
 ```
 
@@ -76,7 +75,6 @@ shared datasets into `shared/`):
 {
     "datadir": "state/data",
     "moduleopts": {
-        "logindexsearch": {"indexdir": "state/logindex"},
         "selfpaste": {"wwwroot": "shared/pastes/"},
         "updaterelaunch": {"update_debounce": 30}
     }

@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
-FROM python:3.14-slim
+# Unpinned minor: rebuilds (always deliberate; the bot self-updates in-process)
+# pick up the latest stable Python.
+FROM python:3-slim
 
 # git: the bot self-updates its own checkout at runtime (updaterelaunch module).
-# tini: PID 1 reaper; logindexsearch forks multiprocessing children.
+# tini: PID 1 reaper so no module that forks children can leave zombies.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git tini \
     && rm -rf /var/lib/apt/lists/*
@@ -31,7 +33,7 @@ RUN chown burlybot:burlybot /app \
 
 USER burlybot
 
-# All private persistent state (config, sqlite DBs, log search index) lives here.
+# All private persistent state (config, sqlite DBs) lives here.
 VOLUME /app/state
 # /app/shared/<name>: data another container reads (e.g. pastes served by the
 # reverse proxy). One volume per dataset, mounted here rw and elsewhere ro.

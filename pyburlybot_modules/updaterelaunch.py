@@ -134,11 +134,9 @@ def update(event: Event, bot: BotLike) -> None:
         bot.say("Restarting to apply update...")
         _restart()
     elif result["modules"]:
-        # reload
-        if bot.isModuleAvailable("reload"):
-            bot.getModule("reload").admin_reload_bot(event, bot)
-        else:
-            bot.say("Module(s) updated but can't reload. reload module not available.")
+        call_in_reactor(_reload_all)
+        # may never get sent if bot is disconnecting from this server after reload
+        bot.say("Module update merged, modules reloaded.")
     else:
         bot.say("Already up-to date.")
 

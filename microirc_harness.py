@@ -227,11 +227,9 @@ def write_runtime_config(
     module_options = runtime_config.setdefault("moduleopts", {})
     if not isinstance(module_options, dict):
         raise HarnessError("Harness moduleopts must be an object")
-    log_options = module_options.setdefault("logindexsearch", {})
     paste_options = module_options.setdefault("selfpaste", {})
-    if not isinstance(log_options, dict) or not isinstance(paste_options, dict):
-        raise HarnessError("Harness log and paste module options must be objects")
-    log_options["indexdir"] = str(runtime_dir / "logindex")
+    if not isinstance(paste_options, dict):
+        raise HarnessError("Harness paste module options must be objects")
     paste_options["wwwroot"] = str(runtime_dir / "pastes")
 
     config_path = runtime_dir / "microirc-harness.json"

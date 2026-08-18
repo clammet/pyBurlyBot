@@ -45,16 +45,12 @@ def resolve_user_time(
     bot: BotLike, origuser: str, dtime: str
 ) -> tuple[float | None, float, int]:
     """Resolve a datespec in the requesting user's local timezone (using the
-    location and googleapi modules when available). Returns
+    location module when available). Returns
     (ntime, current_time, origintime) as UTC epoch seconds; ntime is None when
     the datespec could not be parsed."""
     locmod = None
-    goomod = None
-    timelocale = False
     try:
         locmod = bot.getModule("location")
-        goomod = bot.getModule("googleapi")
-        timelocale = True
     except ConfigException:
         pass
 
@@ -63,22 +59,16 @@ def resolve_user_time(
     localoffset = timegm(alocaltime) - origintime
     t: struct_time = alocaltime
     tz: Any = None
-    if locmod and goomod:
-        loc = locmod.getlocation(bot.dbQuery, origuser)
-        if not loc:
-            timelocale = False
-        else:
-            tz = goomod.google_timezone(bot, loc[1], loc[2], origintime)
-            if not tz:
-                timelocale = False
-            else:
-                t = gmtime(origintime + tz[2] + tz[3])  # [2] dst [3] timezone offset
+    if locmod:
+        tz = locmod.get_user_timezone(bot, origuser, origintime)
+        if tz:
+            t = gmtime(origintime + tz[2] + tz[3])  # [2] dst [3] timezone offset
     ntime = parseDateTime(dtime, t)
     if not ntime:
         return None, 0.0, origintime
 
     # go on, change it. I dare you.
-    if timelocale and tz is not None:
+    if tz:
         current_time = timegm(t) - tz[2] - tz[3]
         ntime = ntime - tz[2] - tz[3]
     else:

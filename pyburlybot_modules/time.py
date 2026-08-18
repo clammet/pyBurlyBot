@@ -7,7 +7,7 @@ from time import gmtime, strftime
 from calendar import timegm  # silly python... I just want UTC seconds
 
 # You could do this without web based service but whatever, offloading is easier. Cloud7.0
-REQUIRES = ("location", "googleapi", "users")
+REQUIRES = ("location", "users")
 
 
 def _processTime(
@@ -15,7 +15,7 @@ def _processTime(
 ) -> tuple[int, str, tuple[str, str, int, int]] | None:
     name, lat, lon = loc
     t = timegm(gmtime())
-    tz = bot.getModule("googleapi").google_timezone(bot, lat, lon, t)
+    tz = bot.getModule("location").get_timezone(bot, lat, lon, t)
     if not group and not tz:
         return bot.say(
             "Can't find timezone information for (%s, %s, %s)" % (name, lat, lon)

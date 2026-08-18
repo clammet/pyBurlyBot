@@ -133,11 +133,11 @@ class DispatcherTest(TestCase):
                 registry.imported[name].__name__, "pyburlybot_modules.%s" % name
             )
 
-        index_process = registry.imported["logindexsearch"].IndexProcess
-        serialized_class = pickle.dumps(index_process)
+        schedule_run = registry.imported["gdq"].ScheduleRun
+        serialized_class = pickle.dumps(schedule_run)
         registry.reset()
         restored_class = pickle.loads(serialized_class)
-        self.assertEqual(restored_class.__module__, "pyburlybot_modules.logindexsearch")
+        self.assertEqual(restored_class.__module__, "pyburlybot_modules.gdq")
         registry.reset()
 
     def test_disallowed_requirement_is_not_imported(self) -> None:

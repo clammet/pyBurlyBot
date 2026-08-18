@@ -65,7 +65,7 @@ def parse_schedule_page(content: bytes | str) -> tuple[ScheduleRun, ...]:
             continue
         try:
             flight_chunk = loads(text.removeprefix(NEXT_DATA_PREFIX).removesuffix(")"))
-        except JSONDecodeError, TypeError:
+        except (JSONDecodeError, TypeError):
             continue
         if (
             isinstance(flight_chunk, list)
@@ -82,7 +82,7 @@ def parse_schedule_page(content: bytes | str) -> tuple[ScheduleRun, ...]:
             continue
         try:
             record = loads(value)
-        except JSONDecodeError, TypeError:
+        except (JSONDecodeError, TypeError):
             continue
         if not isinstance(record, dict) or record.get("type") != "speedrun":
             continue

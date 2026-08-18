@@ -11,6 +11,8 @@ from util import Mapping, fetchone
 REQUIRES = ("users", "googleapi")
 
 Location: TypeAlias = tuple[str, float | str, float | str]
+# (timeZoneId, timeZoneName, dstOffset, rawOffset) per googleapi.google_timezone
+Timezone: TypeAlias = tuple[str, str, int, int]
 
 
 def getlocation(qfunc: DatabaseQuery, user: str) -> Location | None:
@@ -77,6 +79,21 @@ def getLocationWithError(
 
 def lookup_location(bot: BotLike, query: str) -> Location | None:
     return bot.getModule("googleapi").google_geocode(bot, query)
+
+
+# timezone info for a lat/lon at UTC epoch `when`; raises on service failure
+def get_timezone(
+    bot: BotLike, lat: float | str, lon: float | str, when: int | float
+) -> Timezone:
+    return bot.getModule("googleapi").google_timezone(bot, lat, lon, when)
+
+
+# timezone info for a user's saved location, or None if no location is known
+def get_user_timezone(bot: BotLike, user: str, when: int | float) -> Timezone | None:
+    loc = getlocation(bot.dbQuery, user)
+    if not loc:
+        return None
+    return get_timezone(bot, loc[1], loc[2], when)
 
 
 def _display_location(bot: BotLike, user: str) -> None:

@@ -132,7 +132,9 @@ def buttify(msg: str) -> str:
         matches = list(re.finditer(re.escape(word), msg))
         if not matches:
             # Already butted all instances of this word, purge it so it doesn't get selected again
-            weights = [w for w, x in zip(weights, words_to_butt, strict=True) if x != word]
+            weights = [
+                w for w, x in zip(weights, words_to_butt, strict=True) if x != word
+            ]
             words_to_butt = [x for x in words_to_butt if x != word]
             continue
         # random_match is a MatchObject of a random occurrence of word in msg

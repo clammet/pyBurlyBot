@@ -61,7 +61,7 @@ class Channel:
         self.optopic = False
         self.noextmsg = False
 
-    def _adduser(self, user: User, modes: Any = None) -> None:
+    def _adduser(self, user: "User", modes: Any = None) -> None:
         if user.nick not in self.users:
             self.users[user.nick] = user
         user.channels.add(self.name)

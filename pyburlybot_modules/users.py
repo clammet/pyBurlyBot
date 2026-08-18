@@ -8,9 +8,6 @@ from util.db import Query
 # users
 from util import Mapping, distance_of_time_in_words, fetchone
 
-# Modules should not import Settings unless you have a very good reason to do so.
-from util.settings import Settings
-
 OPTIONS: dict[str, tuple[type, str, list[str]]] = {
     "hidden": (list, "Channels in this list will not be shown in seen requests.", []),
 }
@@ -208,15 +205,13 @@ def user_seen(event: Event, bot: BotLike) -> str | None:
 
 
 # migrate a user's rows (here and in every registered observer) from old to new
-def rename_user(network: str, old: str, new: str) -> None:
+def rename_user(bot: BotLike, old: str, new: str) -> None:
+    network = bot.network
     qs: list[Query] = []
     for table_update in TABLEUPDATES.get(network, []):
         qs.extend(table_update(old, new))
     qs.append(("""DELETE FROM user WHERE user=?;""", (old,)))
-    manager = Settings.databasemanager
-    if manager is None:
-        raise RuntimeError("Database manager has not been initialized.")
-    manager.batch(network, qs)
+    bot.dbBatch(qs)
     for external_update in EXTERNALUPDATES.get(network, []):
         external_update(network, old, new)
 
