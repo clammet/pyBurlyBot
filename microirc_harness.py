@@ -26,6 +26,9 @@ DEFAULT_TEMPLATE = PROJECT_ROOT / "microirc_harness.conf"
 DEFAULT_SECRETS_CONFIG = PROJECT_ROOT / "BurlyBot.json"
 API_CREDENTIAL_OPTIONS = frozenset({"API_KEY", "CSE_ID"})
 EXCLUDED_HARNESS_MODULES: Mapping[str, str] = {
+    "bbm": "AI chat harness; needs a paid OpenAI key and answers non-command lines",
+    "codex_api": "helper for bbm; needs a live codex app-server and its token",
+    "openai_api": "helper for bbm; its API_KEY is deliberately not overlaid",
     "remind_common": "shared helper library for tell/alert, not a bot module",
     "updaterelaunch": "mutates and restarts the source checkout",
 }
