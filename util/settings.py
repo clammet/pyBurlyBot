@@ -305,6 +305,12 @@ class Server(BaseServer):
         else:
             self.dispatcher.registry = registry
         self.dispatcher.reload()
+        # Reload tears down module state (timers etc.) that modules only re-arm
+        # on signedon; when this server is already connected that event will
+        # never fire again, so post a synthetic one (#74). postEvent dispatches
+        # on a later reactor turn, i.e. after loading completes.
+        if self.container._botinst is not None:
+            self.container.postEvent("signedon")
 
     def reload_current_modules(self) -> None:
         self.reload_modules(Settings.module_registry)

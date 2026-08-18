@@ -6,10 +6,12 @@ from io import StringIO
 from os import chmod
 from stat import S_IMODE
 from tempfile import TemporaryDirectory
+from typing import Any, cast
 from unittest import TestCase
 
 from util.db import DBaccess
-from util.settings import BaseServer, ConfigException, SettingsBase
+from util.moduleloader import ModuleRegistry
+from util.settings import BaseServer, ConfigException, Server, SettingsBase
 
 
 class SettingsTest(TestCase):
@@ -99,6 +101,21 @@ class SettingsTest(TestCase):
 
             self.assertEqual(settings.nick, "Stable")
             self.assertEqual(set(settings.servers), {"stable-network"})
+
+    def test_module_reload_re_arms_signedon_when_connected(self) -> None:
+        server = Server({"serverlabel": "reload-test", "host": "irc.example.org"})
+        posted: list[str] = []
+        cast(Any, server.container).postEvent = lambda event_type, **kw: posted.append(
+            event_type
+        )
+        registry = ModuleRegistry()
+
+        server.reload_modules(registry)
+        self.assertEqual(posted, [])  # not connected: real signedon comes later
+
+        server.container._botinst = cast(Any, object())
+        server.reload_modules(registry)
+        self.assertEqual(posted, ["signedon"])
 
     def test_module_list_is_ordered_and_deduplicated(self) -> None:
         with TemporaryDirectory() as temp_dir:
