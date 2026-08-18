@@ -62,9 +62,6 @@ class _Pending:
     bot: BotLike | None = None
 
 
-# TODO: This won't really play nice when running multiple bot processes at a time.
-#     After the first bot process updates, the rest will think they are up-to-date.
-#     This could be solved by storing modtimes of modules and core files at launch time and comparing them.
 def _check_and_apply(gitpath: str, branch: str) -> dict[str, bool]:
     """Fetch and merge origin/<branch>, classifying what changed."""
     check_output([gitpath, "fetch"], text=True, timeout=GIT_TIMEOUT)
