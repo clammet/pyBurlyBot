@@ -2,7 +2,6 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import Any, NoReturn, cast
 from base64 import b64encode
 from sys import exc_info
-import sys
 
 # twisted imports
 from twisted.words.protocols.irc import (
@@ -28,6 +27,7 @@ from twisted.protocols.policies import TimeoutMixin
 from OpenSSL import SSL
 
 # system imports
+from logging import getLogger
 from time import time
 from collections import deque
 from math import floor
@@ -42,6 +42,8 @@ from .helpers import (
     splitEncodedUnicode,
 )
 from .state import Network
+
+logger = getLogger(__name__)
 
 reactor: Any = _reactor
 
@@ -200,7 +202,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
                 if line.startswith("AUTHENTICATE ")
                 else quoted_line
             )
-            print("REALLY SENDING LINE:", repr(displayed + self.delimiter))
+            logger.debug("REALLY SENDING LINE: %r", displayed + self.delimiter)
         return LineReceiver.sendLine(self, quoted_line)
 
     def register(
@@ -235,12 +237,11 @@ class BurlyBot(IRCClient, TimeoutMixin):
                 {"account-notify", "account-tag", "extended-join"}
             ):
                 self._legacy_account_lookup = True
-                print(
-                    "WARNING: server %s did not enable IRC account identity; "
+                logger.warning(
+                    "server %s did not enable IRC account identity; "
                     "administrator commands will be verified with NickServ STATUS "
-                    "(admins are matched by identified nickname)."
-                    % self.settings.serverlabel,
-                    file=sys.stderr,
+                    "(admins are matched by identified nickname).",
+                    self.settings.serverlabel,
                 )
             self._cap_ended = True
             self._reallySendLine("CAP END")
@@ -621,7 +622,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
         Called when we get a message.
         """
         if self.debug >= 2:
-            print("INCOMING PRIVMSG:", prefix, params)
+            logger.debug("INCOMING PRIVMSG: %s %s", prefix, params)
         user = prefix
         channel = params[0]
         message = params[-1]
@@ -661,7 +662,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
         Called when a user gets a notice.
         """
         if self.debug >= 2:
-            print("INCOMING NOTICE:", prefix, params)
+            logger.debug("INCOMING NOTICE: %s %s", prefix, params)
         user = prefix
         channel = params[0]
         message = params[-1]
@@ -1040,7 +1041,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
     # This method is interesting, for example ERROR gets sent from Rizon when you quit
     # TODO: find out what to actually do with this.
     def irc_ERROR(self, prefix: str, params: list[str]) -> None:
-        print("ERROR received: %s" % params)
+        logger.error("ERROR received: %s", params)
 
     ###
     ### Modified command handler from IRCCLient
@@ -1079,7 +1080,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
         if isinstance(line, bytes):
             line = line.decode(self.settings.encoding, "replace")
         if self.debug >= 3:
-            print("INCOMING LINE: %s" % line)
+            logger.debug("INCOMING LINE: %s", line)
         # lowDequote is annotated str | bytes, but str in gives str out
         line = cast(str, lowDequote(line))
         try:
@@ -1187,13 +1188,13 @@ class BurlyBot(IRCClient, TimeoutMixin):
         self, user: str, channel: str, tag: str, data: str | None
     ) -> None:
         if self.settings.debug:
-            print("Unknown CTCP query from %r: %r %r" % (user, tag, data))
+            logger.debug("Unknown CTCP query from %r: %r %r", user, tag, data)
 
     def signedOn(self) -> None:
         """
         Called when bot has successfully signed on to server.
         """
-        print("[Signed on]")
+        logger.info("[Signed on]")
 
         # process nickprefixes
         # reason for this is to class prefixes in to "op" and "voice"
@@ -1250,7 +1251,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
 
     def irc_unknown(self, prefix: str, command: str, params: list[str]) -> None:
         if self.settings.debug:
-            print("Unknown command: %s, %s, %s" % (prefix, command, params))
+            logger.debug("Unknown command: %s, %s, %s", prefix, command, params)
 
     ###
     ### Custom outgoing methods
@@ -1528,10 +1529,10 @@ class BurlyBot(IRCClient, TimeoutMixin):
         if self.state:
             self.state._resetnetwork()
         # TODO: reason needs to be properly formatted/actual reason being extracted from the "Failure" or whatever
-        print("[disconnected: %s]" % reason)
+        logger.info("[disconnected: %s]", reason)
         tls_hint = _tlsConnectionErrorHint(self.settings, reason)
         if tls_hint:
-            print(tls_hint)
+            logger.warning("%s", tls_hint)
 
 
 class BurlyBotFactory(ReconnectingClientFactory):

@@ -17,6 +17,7 @@ All ``WebhookListener`` methods must be called from the reactor thread (module
 from collections.abc import Callable
 from dataclasses import dataclass
 from json import dumps
+from logging import getLogger
 from typing import Any, ClassVar
 
 from twisted.internet import reactor as _reactor
@@ -217,4 +218,4 @@ class WebhookListener:
             cls._address = None
             raise
         bound = getattr(cls._port.getHost(), "port", port)
-        print("WEBHOOK: listening on http://%s:%d/" % (host, bound))
+        getLogger(__name__).info("WEBHOOK: listening on http://%s:%d/", host, bound)

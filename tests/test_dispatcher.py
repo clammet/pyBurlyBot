@@ -352,7 +352,7 @@ class SendmsgHookTest(TestCase):
             def run_now(func: Any, *args: Any) -> Any:
                 func(*args)
                 deferred = Mock()
-                deferred.addCallback.side_effect = lambda cb: cb(None)
+                deferred.addCallback.side_effect = lambda cb, *args: cb(None, *args)
                 return deferred
 
             with patch("util.dispatcher.deferToThread", side_effect=run_now):

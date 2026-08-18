@@ -1,5 +1,6 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from logging import getLogger
 from pathlib import Path
 from queue import Queue
 import sqlite3
@@ -8,6 +9,8 @@ from traceback import format_exc
 from typing import Any
 
 from .types import DatabaseParams
+
+log = getLogger(__name__)
 
 
 Query = tuple[str, DatabaseParams]
@@ -279,7 +282,7 @@ class DBaccess(Thread):
                 return
             self._stopping = True
             self.qq.put(_STOP)
-        print("STOPPING %s" % self.name)
+        log.info("stopping %s", self.name)
         self.join()
 
     def commit(self) -> None:

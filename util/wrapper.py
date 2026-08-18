@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from logging import getLogger
 from typing import Any
 
 # This seems like a bit of a waste, but it's difficult to implement this in Container
@@ -10,6 +11,8 @@ from traceback import format_tb
 from .container import Container
 from .event import Event
 from .threads import call_in_reactor, isInIOThread
+
+log = getLogger(__name__)
 
 
 class BotWrapper:
@@ -114,7 +117,7 @@ class BotWrapper:
     def _moduleerr(self, e: Any) -> None:
         if isinstance(e, Failure):
             e.cleanFailure()
-            e.printTraceback()
+            log.error("module handler failed:\n%s", e.getTraceback())
             tb = e.getTracebackObject()
             ex = e.value
             if tb:
@@ -135,4 +138,4 @@ class BotWrapper:
                 )
         else:
             self.say("Error: %s" % str(e))
-            print("error:", e)
+            log.error("module handler failed: %s", e)

@@ -1,10 +1,10 @@
 from collections.abc import Callable, Iterable, Mapping
+from logging import getLogger
 from types import ModuleType
 from typing import Any, cast
 from os.path import dirname, join
 from os import chmod, close, execv, fdopen, fsync, open as osopen, replace, unlink
 from sys import argv, executable
-import sys
 from tempfile import mkstemp
 from copy import deepcopy
 from json import dump, load, JSONEncoder
@@ -12,12 +12,12 @@ from collections import OrderedDict
 from atexit import register
 
 from twisted.internet.ssl import CertificateOptions, PrivateCertificate, platformTrust
-from twisted.python import log
 from twisted.internet import reactor as _reactor
 
 # BurlyBot
 from util.container import Container
 from util.dispatcher import Dispatcher
+from util.logsetup import add_logfile, set_debug
 from util.moduleloader import ModuleRegistry
 from util.client import BurlyBotFactory
 from util.db import DBManager
@@ -27,6 +27,7 @@ from util.options import Option
 from util.helpers import irc_casefold
 
 reactor: Any = _reactor
+log = getLogger(__name__)
 
 KEYS_COMMON = (
     "admins",
@@ -244,17 +245,16 @@ class BaseServer:
 
     def warn_insecure_auth(self) -> None:
         if getattr(self, "insecure", False):
-            print(
-                "WARNING: insecure nickname-only administrator authentication is active "
-                "for %s. Nicknames are not identities and can be impersonated."
-                % self.serverlabel,
-                file=sys.stderr,
+            log.warning(
+                "insecure nickname-only administrator authentication is active "
+                "for %s. Nicknames are not identities and can be impersonated.",
+                self.serverlabel,
             )
         if self.ssl and not getattr(self, "verify", True):
-            print(
-                "WARNING: TLS certificate verification is disabled for %s. "
-                "The IRC server identity is not authenticated." % self.serverlabel,
-                file=sys.stderr,
+            log.warning(
+                "TLS certificate verification is disabled for %s. "
+                "The IRC server identity is not authenticated.",
+                self.serverlabel,
             )
 
     def setup(self, opts: Mapping[str, Any]) -> None:
@@ -742,9 +742,8 @@ class SettingsBase:
                         createCertOptions(server),
                     )
                 except Exception as e:  # noqa: BLE001 - Twisted connector boundary
-                    print(
-                        "SSL Error: Cannot connect to '%s' (%s)"
-                        % (server.serverlabel, e)
+                    log.error(
+                        "SSL Error: Cannot connect to '%s' (%s)", server.serverlabel, e
                     )
                     # fully retire the server so it is not left half-registered
                     # (in Settings.servers with a live factory but no database)
@@ -767,7 +766,7 @@ class SettingsBase:
             raise RuntimeError("Database manager has not been initialized.")
         # NOTE: this is serverlabel
         for server_label in servers:
-            print("DISCONNECTING: %s" % server_label)
+            log.info("disconnecting: %s", server_label)
             server = self.servers[server_label]
             if server.container._botinst:
                 server.container._botinst.quit()
@@ -780,7 +779,7 @@ class SettingsBase:
             try:
                 del self.servers[server.serverlabel]
             except KeyError:
-                print("Warning: tried to remove server that didn't exist")
+                log.warning("tried to remove server that didn't exist")
 
     def load(self) -> None:
         self.reloadStage1()
@@ -809,19 +808,17 @@ class SettingsBase:
         self.oldservers = set()
         self.newservers = []
 
-    # TODO: when twisted supports good logger, consider allowing per-server logfile
     # NOTE: logfile is not chat logging
     # This must be called only once
     def initialize(self, logger: Any = None) -> None:
-        # setup log options
-        if not self.console:
+        # setup log options (see util/logsetup.py)
+        if not self.console and logger is not None:
             logger.stop()
         if self.logfile:
             if self.botdir is None:
                 raise RuntimeError("Bot directory has not been configured.")
-            log.startLogging(
-                open(join(self.botdir, self.logfile), "a"), setStdout=False
-            )
+            add_logfile(join(self.botdir, self.logfile))
+        set_debug(self.debug)
 
         if self.threadpoolsize:
             reactor.suggestThreadPoolSize(self.threadpoolsize)

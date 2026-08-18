@@ -1,8 +1,6 @@
 from json import dumps, load
 from pathlib import Path
 import sqlite3
-from contextlib import redirect_stderr
-from io import StringIO
 from os import chmod
 from stat import S_IMODE
 from tempfile import TemporaryDirectory
@@ -174,11 +172,10 @@ class SettingsTest(TestCase):
                 "insecure": True,
             }
         )
-        warning = StringIO()
-        with redirect_stderr(warning):
+        with self.assertLogs("util.settings", "WARNING") as warning:
             server.warn_insecure_auth()
         self.assertTrue(server.is_admin("ALICE", None))
-        self.assertIn("nickname-only", warning.getvalue())
+        self.assertIn("nickname-only", "\n".join(warning.output))
 
     def test_sasl_credentials_must_be_configured_as_a_pair(self) -> None:
         with self.assertRaises(ConfigException):

@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from logging import getLogger
 from typing import Any
 from re import compile as recompile, IGNORECASE, VERBOSE
 from .timer import Timers, TimerExists, TimerInvalidName, TimerNotFound
@@ -98,7 +99,7 @@ def pastehelper(
                 tmsg = basemsg % sep[1].join(items)
         else:
             tmsg = basemsg
-        print("ATTEMPTED PASTEHELPER MSG: %r" % tmsg)
+        getLogger(__name__).error("ATTEMPTED PASTEHELPER MSG: %r", tmsg)
         raise
 
 

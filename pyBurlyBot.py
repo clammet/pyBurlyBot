@@ -1,8 +1,8 @@
-from typing import IO
 from types import FrameType
 from typing import Any
 # pyBurlyBot
 
+from logging import getLogger
 from os import name
 
 from os.path import exists
@@ -14,20 +14,18 @@ from threading import Event
 import signal
 
 # twisted imports
-from twisted.python import log
 from twisted.internet import reactor as _reactor
 from twisted.internet.task import LoopingCall
 from twisted.python.threadable import registerAsIOThread
 
 # BurlyBot imports
+from util.logsetup import start_logging
 from util.settings import Settings, ConfigException
 
+__all__ = ("start_logging",)
+
 reactor: Any = _reactor
-
-
-def start_logging(output: IO[str]) -> Any:
-    """Start Twisted logging without replacing multiprocessing-safe stdio."""
-    return log.startLogging(output, setStdout=False)
+logger = getLogger(__name__)
 
 
 def setup_sighup_handler() -> None:
@@ -81,7 +79,7 @@ def setup_heartbeat(path: str, interval: float = 30.0) -> None:
         try:
             heartbeat.touch()
         except OSError as e:
-            print("Warning: heartbeat write failed: %s" % e)
+            logger.warning("heartbeat write failed: %s", e)
 
     LoopingCall(beat).start(interval, now=True)
 

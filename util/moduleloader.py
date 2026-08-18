@@ -1,9 +1,12 @@
 from collections.abc import Iterable
 from importlib import import_module, invalidate_caches
-from sys import modules as system_modules, stderr
-from traceback import format_exc, print_exc
+from logging import getLogger
+from sys import modules as system_modules
+from traceback import format_exc
 from types import ModuleType
 from typing import Any
+
+log = getLogger(__name__)
 
 
 class ModuleRegistry:
@@ -61,12 +64,11 @@ class ModuleRegistry:
                 continue
             unload = getattr(module, "unload", None)
             if unload is not None:
-                print("UNLOADING (%s)" % name)
+                log.info("UNLOADING (%s)", name)
                 try:
                     unload()
-                except Exception:  # noqa: BLE001 - third-party unload boundary
-                    print("ERROR in unloading %s" % name, file=stderr)
-                    print_exc()
+                except Exception:
+                    log.exception("ERROR in unloading %s", name)
             self._unloaded.add(name)
 
     def reset(self) -> None:
@@ -97,18 +99,25 @@ class ModuleRegistry:
 
     def show_load_errors(self) -> None:
         if self.import_errors:
-            print("\nWARNING: MODULE IMPORT(S) FAILED:", file=stderr)
-            for module, reason in self.import_errors.items():
-                stderr.write("  %s: %s\n" % (module, reason))
-            print(file=stderr)
+            log.warning(
+                "MODULE IMPORT(S) FAILED:\n%s",
+                "\n".join(
+                    "  %s: %s" % (module, reason)
+                    for module, reason in self.import_errors.items()
+                ),
+            )
 
         for server, failures in self.activation_errors.items():
             if not failures:
                 continue
-            print("\nWARNING: MODULE(S) NOT ACTIVE ON %s:" % server, file=stderr)
-            for module, reason in failures.items():
-                stderr.write("  %s: %s\n" % (module, reason))
-            print(file=stderr)
+            log.warning(
+                "MODULE(S) NOT ACTIVE ON %s:\n%s",
+                server,
+                "\n".join(
+                    "  %s: %s" % (module, reason)
+                    for module, reason in failures.items()
+                ),
+            )
 
 
 class ModuleLoadError(Exception):

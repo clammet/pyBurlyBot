@@ -6,6 +6,7 @@ from typing import Any, NoReturn, TypeAlias
 # it wraps actual botinst functions to limit the scope of what functions modules have access to within botinstance
 # it also holds a queue for messages attempted to be sent while there is no current botinstance
 
+from logging import getLogger
 from queue import Queue, Empty
 from collections import deque
 from time import time, sleep
@@ -23,6 +24,7 @@ from util.threads import call_in_reactor
 from util.types import DatabaseParams
 
 reactor: Any = _reactor
+log = getLogger(__name__)
 EventTypes: TypeAlias = str | set[str] | list[str] | tuple[str, ...] | None
 
 
@@ -133,7 +135,7 @@ class Container:
         if self._botinst:
             while self._outqueue:
                 outbound = self._outqueue.popleft()
-                print("PROCESSING QUEUED METHODS")
+                log.info("processing queued bot API call: %s", outbound[0])
                 # These will always be BurlyBot functions so let's do some magic.
                 # There shouldn't be any AttributeError, and if there is, bad luck I guess.
                 # This should always be called from inside the reactor so don't need to pass it to the reactor
@@ -235,9 +237,9 @@ class Container:
         # docs seem to suggest this is always a Failure instance...
         if isinstance(e, Failure):
             e.cleanFailure()
-            e.printTraceback()
+            log.error("module handler failed:\n%s", e.getTraceback())
         else:
-            print("error:", e)
+            log.error("module handler failed: %s", e)
 
     # stop event optional since you can just bail out of the generator if you know you have all
     # the things you want

@@ -1,4 +1,5 @@
 from copy import copy
+from logging import getLogger
 from types import ModuleType
 from typing import Any, cast
 from twisted.internet.threads import deferToThread
@@ -16,6 +17,8 @@ from .moduleloader import ModuleRegistry
 from .mapping import Mapping, MappingFunction
 from .types import BotLike
 from .options import option_spec
+
+log = getLogger(__name__)
 
 
 class Dispatcher:
@@ -94,7 +97,7 @@ class Dispatcher:
             )
             return False
 
-        print("Loading %s..." % name)
+        log.info("Loading %s...", name)
         module = self.registry.import_plugin(name)
         if module is None:
             return False
@@ -133,7 +136,7 @@ class Dispatcher:
                 return False
 
         self.registry.activate(self.serverlabel, name, module)
-        print("Loaded %s." % name)
+        log.info("Loaded %s.", name)
         return True
 
     def _configure_module(self, name: str, module: ModuleType) -> None:
@@ -296,7 +299,7 @@ class Dispatcher:
                     cont_or_wrap, l_event_type, eventkwargs
                 )
             if self.debug >= 2:
-                print("DISPATCHING: %s" % event)
+                log.debug("DISPATCHING: %s", event)
             # sendmsg handlers run as one Deferred chain (#36): sequential in
             # priority order, so hooks observe outbound messages deterministically
             chain: list[tuple[MappingFunction, Event]] | None = (
@@ -392,7 +395,7 @@ class Dispatcher:
         debug: int,
     ) -> None:
         if debug >= 2:
-            print("DISPATCHING TO: %r" % func)
+            log.debug("DISPATCHING TO: %r", func)
         # Module handlers may perform blocking HTTP or parsing. Keep every mapped
         # callback behind the same worker boundary so the reactor remains responsive.
         d = deferToThread(func, event, cast(BotLike, cont_or_wrap))
@@ -406,7 +409,7 @@ class Dispatcher:
         debug: int,
     ) -> None:
         if debug >= 2:
-            print("DISPATCHING CHAIN TO: %r" % [func for func, _event in chain])
+            log.debug("DISPATCHING CHAIN TO: %r", [func for func, _event in chain])
 
         def _next(_result: Any, func: MappingFunction, ev: Event) -> Any:
             return deferToThread(func, ev, cast(BotLike, cont_or_wrap))
