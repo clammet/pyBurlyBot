@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterable
 import sqlite3
-from typing import cast
+from typing import Any, cast
 from util.event import Event
 from util.types import BotLike, DatabaseQuery
 from util.db import Query
@@ -22,6 +22,16 @@ ExternalUpdate = Callable[[str, str, str], None]
 TABLEUPDATES: dict[str, list[TableUpdate]] = {}
 # [network] = [func]
 EXTERNALUPDATES: dict[str, list[ExternalUpdate]] = {}
+
+# Identity hooks. Modules that extend canonical-user resolution (e.g. alias)
+# register per-network functions here from their init(); users itself stays
+# ignorant of who provides them. Empty registry means nick == canonical user.
+NickResolver = Callable[[DatabaseQuery, str], str | None]
+GroupExpander = Callable[[DatabaseQuery, str], list[str]]
+
+# [network] = [func]
+NICKRESOLVERS: dict[str, list[NickResolver]] = {}
+GROUPEXPANDERS: dict[str, list[GroupExpander]] = {}
 
 SEENMSGWSOURCE = 'I last saw %s %s on %s. "%s"'
 SEENMSG = "I last saw %s %s."
@@ -46,52 +56,59 @@ def _user_update(qfunc: DatabaseQuery, event: Event, nick: str | None = None) ->
     )
 
 
+# canonical username for nick per registered resolvers, or None if no
+# resolver claims it. Does not check the user table.
+def resolve_nick(bot: BotLike, nick: str | None) -> str | None:
+    if nick is None:
+        return None
+    for resolver in NICKRESOLVERS.get(bot.network, []):
+        canonical = resolver(bot.dbQuery, nick)
+        if canonical:
+            return canonical
+    return None
+
+
+# members of the group `name` per registered expanders, or [] if none match.
+def expand_group(bot: BotLike, name: str | None) -> list[str]:
+    if not name:
+        return []
+    for expander in GROUPEXPANDERS.get(bot.network, []):
+        members = expander(bot.dbQuery, name)
+        if members:
+            return members
+    return []
+
+
 def user_update(event: Event, bot: BotLike) -> None:
-    # check is alias is loaded and available
-    # this method gets called on the reactor so it may cause many context switches :(
-    if bot.isModuleAvailable("alias"):
-        alias_module = bot.getModule("alias")
-        _user_update(
-            bot.dbQuery, event, alias_module.lookup_alias(bot.dbQuery, event.nick)
-        )
-    else:
-        # alias not loaded
-        _user_update(bot.dbQuery, event)
+    _user_update(bot.dbQuery, event, resolve_nick(bot, event.nick))
     return
 
 
 # returns user row, i.e. all user properties in the result
 def get_user(bot: BotLike, nick: str) -> sqlite3.Row | None:
-    qfunc = bot.dbQuery
-    if bot.isModuleAvailable("alias"):
-        anick = bot.getModule("alias").lookup_alias(qfunc, nick)
-        if anick:
-            return qfunc(
-                """SELECT * FROM user WHERE user=?;""", (anick,), func=fetchone
-            )
-    return qfunc("""SELECT * FROM user WHERE user=?;""", (nick,), func=fetchone)
+    canonical = resolve_nick(bot, nick)
+    return bot.dbQuery(
+        """SELECT * FROM user WHERE user=?;""", (canonical or nick,), func=fetchone
+    )
 
 
 # returns username only, or None if no user exists.
-def get_username(
-    bot: BotLike, nick: str, source: str | None = None, _inalias: bool = False
-) -> str | None:
+def get_username(bot: BotLike, nick: str, source: str | None = None) -> str | None:
     qfunc = bot.dbQuery
     if source and nick.lower() == "me":
         nick = source
-    if _inalias or bot.isModuleAvailable("alias"):
-        alias = bot.getModule("alias").lookup_alias(qfunc, nick)
-        if alias:
-            user = qfunc(
-                """SELECT user FROM user WHERE user=?;""", (alias,), func=fetchone
-            )
-            if user:
-                return user["user"]
-    return _get_username(qfunc, nick)
+    canonical = resolve_nick(bot, nick)
+    if canonical:
+        user = qfunc(
+            """SELECT user FROM user WHERE user=?;""", (canonical,), func=fetchone
+        )
+        if user:
+            return user["user"]
+    return get_username_raw(qfunc, nick)
 
 
-# get username only. do not look for aliases.
-def _get_username(qfunc: DatabaseQuery, nick: str) -> str | None:
+# get username only. do not consult resolvers (aliases).
+def get_username_raw(qfunc: DatabaseQuery, nick: str) -> str | None:
     user = qfunc("""SELECT user FROM user WHERE user=?;""", (nick,), func=fetchone)
     if user:
         return user["user"]
@@ -113,58 +130,54 @@ def user_seen(event: Event, bot: BotLike) -> str | None:
 
     hidden = bot.getOption("hidden", module="users")
 
-    if bot.isModuleAvailable("alias"):
-        alias_module = bot.getModule("alias")
-        # do magic for group
-        group = alias_module.group_list(bot.dbQuery, target)
-        if group:
-            msgs = []
-            for member in group:
-                seen = _user_seen(bot.dbQuery, member)
-                if seen is None:
-                    continue
-                if seen["seenwhere"] in hidden:
-                    msgs.append(
-                        SEENMSG % (target, distance_of_time_in_words(seen["lastseen"]))
-                    )
-                else:
-                    msgs.append(
-                        SEENMSGWSOURCE
-                        % (
-                            target,
-                            distance_of_time_in_words(seen["lastseen"]),
-                            seen["seenwhere"],
-                            seen["lastmsg"],
-                        )
-                    )
-            if len(group) > 3:
-                try:
-                    return bot.say(
-                        "%s, see %s"
-                        % (
-                            event.nick,
-                            bot.getAddon("paste")(
-                                "\n".join(msgs), title="Seen %s" % target
-                            ),
-                        )
-                    )
-                except AttributeError:
-                    return bot.say("Too many users and no paste available.")
+    # do magic for group
+    group = expand_group(bot, target)
+    if group:
+        msgs = []
+        for member in group:
+            seen = _user_seen(bot.dbQuery, member)
+            if seen is None:
+                continue
+            if seen["seenwhere"] in hidden:
+                msgs.append(
+                    SEENMSG % (target, distance_of_time_in_words(seen["lastseen"]))
+                )
             else:
-                first = True
-                for msg in msgs:
-                    if first:
-                        bot.say("%s, %s" % (event.nick, msg))
-                    else:
-                        bot.say(msg)
-                    first = False
-                return None
+                msgs.append(
+                    SEENMSGWSOURCE
+                    % (
+                        target,
+                        distance_of_time_in_words(seen["lastseen"]),
+                        seen["seenwhere"],
+                        seen["lastmsg"],
+                    )
+                )
+        if len(group) > 3:
+            try:
+                return bot.say(
+                    "%s, see %s"
+                    % (
+                        event.nick,
+                        bot.getAddon("paste")(
+                            "\n".join(msgs), title="Seen %s" % target
+                        ),
+                    )
+                )
+            except AttributeError:
+                return bot.say("Too many users and no paste available.")
+        else:
+            first = True
+            for msg in msgs:
+                if first:
+                    bot.say("%s, %s" % (event.nick, msg))
+                else:
+                    bot.say(msg)
+                first = False
+            return None
 
-        # not group, look for alias:
-        nick = alias_module.lookup_alias(bot.dbQuery, target)
-        seen = _user_seen(bot.dbQuery, nick if nick else target)
-    else:
-        seen = _user_seen(bot.dbQuery, target)
+    # not group, resolve to canonical user if possible:
+    nick = resolve_nick(bot, target)
+    seen = _user_seen(bot.dbQuery, nick if nick else target)
 
     if not seen:
         bot.say("%s, lol dunno." % event.nick)
@@ -194,7 +207,8 @@ def user_seen(event: Event, bot: BotLike) -> str | None:
     return None
 
 
-def _rename_user(network: str, old: str, new: str) -> None:
+# migrate a user's rows (here and in every registered observer) from old to new
+def rename_user(network: str, old: str, new: str) -> None:
     qs: list[Query] = []
     for table_update in TABLEUPDATES.get(network, []):
         qs.extend(table_update(old, new))
@@ -207,14 +221,32 @@ def _rename_user(network: str, old: str, new: str) -> None:
         external_update(network, old, new)
 
 
+# registrations dedupe because a per-server module reload re-runs init() on
+# cached module objects, so the same function would be appended again
+def _register(registry: dict[str, list[Any]], network: str, func: Any) -> None:
+    funcs = registry.setdefault(network, [])
+    if func not in funcs:
+        funcs.append(func)
+
+
 # passed function MUST return a list of queries to be executed. See tell.py and location.py for examples.
 def REGISTER_UPDATE(
     network: str, func: TableUpdate | ExternalUpdate, external: bool = False
 ) -> None:
     if not external:
-        TABLEUPDATES.setdefault(network, []).append(cast(TableUpdate, func))
+        _register(TABLEUPDATES, network, cast(TableUpdate, func))
     else:
-        EXTERNALUPDATES.setdefault(network, []).append(cast(ExternalUpdate, func))
+        _register(EXTERNALUPDATES, network, cast(ExternalUpdate, func))
+
+
+# register a nick -> canonical-user resolver (see resolve_nick)
+def REGISTER_RESOLVER(network: str, func: NickResolver) -> None:
+    _register(NICKRESOLVERS, network, func)
+
+
+# register a groupname -> members expander (see expand_group)
+def REGISTER_GROUP_EXPANDER(network: str, func: GroupExpander) -> None:
+    _register(GROUPEXPANDERS, network, func)
 
 
 # init should always be here to setup needed DB tables or objects or whatever

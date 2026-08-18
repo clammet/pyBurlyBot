@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from calendar import timegm
 from collections import deque
 from time import gmtime, localtime, struct_time
+from types import ModuleType
 from typing import Any
 
 from util import argumentSplit, parseDateTime
@@ -86,12 +87,10 @@ def resolve_user_time(
     return ntime, current_time, origintime
 
 
-def _gather_group_users(bot: BotLike, s: str) -> Iterable[tuple[str, str]]:
-    alias_module = bot.getModule("alias")
-    g = alias_module.get_groupname(bot.dbQuery, s)
-    if g:
-        return [(user, user) for user in alias_module.group_list(bot.dbQuery, g)]
-    return []
+def _gather_group_users(
+    users_module: ModuleType, bot: BotLike, s: str
+) -> Iterable[tuple[str, str]]:
+    return [(user, user) for user in users_module.expand_group(bot, s)]
 
 
 def generate_users(
@@ -100,9 +99,6 @@ def generate_users(
     """Resolve a comma-separated list of users/groups (aware of names that
     themselves contain commas). Returns (users, unknown, dupes, hasself) where
     users is a list of (username, name_as_called)."""
-    alias = False
-    if bot.isModuleAvailable("alias"):
-        alias = True
     uset: set[str] = set()
     dupes = False
     users: list[tuple[str, str]] = []  # user,called
@@ -128,8 +124,8 @@ def generate_users(
         # check for user, then group (put user in list to make iteration easier)
         if u:
             u = ((u, t),)
-        elif alias:
-            u = _gather_group_users(bot, t)
+        else:
+            u = _gather_group_users(users_module, bot, t)
 
         if u:
             _collect(u)
@@ -141,8 +137,10 @@ def generate_users(
                 u = users_module.get_username(bot, ",".join(candidate_parts), nick)
                 if u:
                     u = ((u, ",".join(candidate_parts)),)
-                elif alias:
-                    u = _gather_group_users(bot, ",".join(candidate_parts))
+                else:
+                    u = _gather_group_users(
+                        users_module, bot, ",".join(candidate_parts)
+                    )
             # at this point we either have u or ran out of deque, if latter, throw l[1:] back on queue
             if u:
                 _collect(u)

@@ -80,7 +80,7 @@ def group_check(qfunc: DatabaseQuery, group: str, nick: str) -> sqlite3.Row | No
 def subscripe(event: Event, bot: BotLike) -> None:
     """subscripe [groupname]. subscripe will list all groups you are a member of. If groupname is supplied you will become
     a member of groupname"""
-    user = bot.getModule("users").get_username(bot, event.nick, _inalias=True)
+    user = bot.getModule("users").get_username(bot, event.nick)
     if not user:
         return bot.say("Don't I know you?")
     if event.argument:
@@ -99,7 +99,7 @@ def subscripe(event: Event, bot: BotLike) -> None:
 
 def unsubscripe(event: Event, bot: BotLike) -> None:
     """unsubscripe groupname. unsubscripe will remove you from group groupname"""
-    user = bot.getModule("users").get_username(bot, event.nick, _inalias=True)
+    user = bot.getModule("users").get_username(bot, event.nick)
     if not user:
         return bot.say("Do I know you?")
     if event.argument:
@@ -176,9 +176,7 @@ def group(event: Event, bot: BotLike) -> None:
             # assume arg2 is a groupname to remove arg3 from
             group_name = get_groupname(bot.dbQuery, arg2)
             if group_name:
-                nick = users_module.get_username(
-                    bot, arg3, source=event.nick, _inalias=True
-                )
+                nick = users_module.get_username(bot, arg3, source=event.nick)
                 if not nick:
                     return bot.say("User/alias (%s) not found." % arg3)
                 if group_check(bot.dbQuery, group_name, nick):
@@ -220,7 +218,7 @@ def group(event: Event, bot: BotLike) -> None:
             return bot.say("Group (%s) is in use by an alias/user already." % arg1)
 
         # binding to a group
-        nick = users_module.get_username(bot, arg2, source=event.nick, _inalias=True)
+        nick = users_module.get_username(bot, arg2, source=event.nick)
         if not nick:
             return bot.say("User/alias (%s) not found or seen." % arg2)
 
@@ -271,7 +269,7 @@ def aliasgroup(bot: BotLike, groupname: str, alias: str) -> bool | None:
 def aliasuser(bot: BotLike, arg1: str, arg2: str, source: str) -> None:
     # Query target_user first so we can display error messages in sane order.
     users_module = bot.getModule("users")
-    target_user = users_module._get_username(bot.dbQuery, arg2)
+    target_user = users_module.get_username_raw(bot.dbQuery, arg2)
     if source == target_user:
         return bot.say("But %s is already %s." % (arg1, arg2))
     # then check to see if alias is already part of a group
@@ -294,7 +292,7 @@ def aliasuser(bot: BotLike, arg1: str, arg2: str, source: str) -> None:
 
     # see comments just above
     if target:
-        users_module._rename_user(bot.network, target, source)
+        users_module.rename_user(bot.network, target, source)
         # find all groups that alias is a part of, and change membership to use "user" (source)
         bot.dbQuery("""UPDATE aliasgrp SET user=? WHERE user = ?;""", (source, arg2))
     # add origin mapping so that origins can't get aliased
@@ -350,7 +348,7 @@ def alias(event: Event, bot: BotLike) -> None:
         if arg2.lower() == "me":
             return bot.say("But you are already yourself.")
 
-        source = users_module.get_username(bot, arg1, source=event.nick, _inalias=True)
+        source = users_module.get_username(bot, arg1, source=event.nick)
         if not source:
             # ATTEMPT GROUP
             if aliasgroup(bot, arg1, arg2) is False:
@@ -418,6 +416,12 @@ def init(bot: BotLike) -> bool:
         "alias_groupalias_idx",
         """CREATE INDEX alias_groupalias_idx ON aliasgrpalias(grp);""",
     )
+
+    # plug alias resolution into users' identity hooks so users (and every
+    # module built on it) never has to know whether alias is loaded
+    users_module = bot.getModule("users")
+    users_module.REGISTER_RESOLVER(bot.network, lookup_alias)
+    users_module.REGISTER_GROUP_EXPANDER(bot.network, group_list)
 
     return True
 

@@ -32,58 +32,53 @@ def ttime(event: Event, bot: BotLike) -> None:
     # attempt group first (because it's easier with current location module weirdness
     # (getLocationWithError needs rewrite with friendlier API)
     location_module = bot.getModule("location")
-    if bot.isModuleAvailable("alias"):
-        alias_module = bot.getModule("alias")
-        g = alias_module.get_groupname(bot.dbQuery, event.argument)
-        if g:
-            users = alias_module.group_list(bot.dbQuery, g)
-            # process group request:
+    users = bot.getModule("users").expand_group(bot, event.argument)
+    if users:
+        # process group request:
 
-            if len(users) > 2:
-                collate = True
-            else:
-                collate = False
-            lines = []
-            for u in users:
-                success, data = location_module.getLocationWithError(
-                    bot, u, event.nick, group=True
-                )
-                if success:
-                    tdata = _processTime(bot, data, group=True)
-                    if tdata:
-                        t, name, tz = tdata
-                        if collate:
-                            lines.append(
-                                "(%s) %s - %s (%s-%s)"
-                                % (u, strftime("%c", gmtime(t)), name, tz[0], tz[1])
-                            )
-                        else:
-                            bot.say(
-                                "(%s) %s - %s (%s-%s)"
-                                % (u, strftime("%c", gmtime(t)), name, tz[0], tz[1])
-                            )
+        if len(users) > 2:
+            collate = True
+        else:
+            collate = False
+        lines = []
+        for u in users:
+            success, data = location_module.getLocationWithError(
+                bot, u, event.nick, group=True
+            )
+            if success:
+                tdata = _processTime(bot, data, group=True)
+                if tdata:
+                    t, name, tz = tdata
+                    if collate:
+                        lines.append(
+                            "(%s) %s - %s (%s-%s)"
+                            % (u, strftime("%c", gmtime(t)), name, tz[0], tz[1])
+                        )
                     else:
-                        if collate:
-                            lines.append(
-                                "(%s) Can't find timezone information for (%s, %s, %s)"
-                                % (u, data[0], data[1], data[2])
-                            )
-                        else:
-                            bot.say(
-                                "(%s) Can't find timezone information for (%s, %s, %s)"
-                                % (u, data[0], data[1], data[2])
-                            )
+                        bot.say(
+                            "(%s) %s - %s (%s-%s)"
+                            % (u, strftime("%c", gmtime(t)), name, tz[0], tz[1])
+                        )
                 else:
                     if collate:
-                        lines.append(data)
+                        lines.append(
+                            "(%s) Can't find timezone information for (%s, %s, %s)"
+                            % (u, data[0], data[1], data[2])
+                        )
                     else:
-                        bot.say(data)
-            if collate:
-                msg = "Times for group (%s): %%s" % g
-                pastehelper(
-                    bot, msg, items=lines, altmsg="%s", force=True, title=msg[:-4]
-                )
-            return
+                        bot.say(
+                            "(%s) Can't find timezone information for (%s, %s, %s)"
+                            % (u, data[0], data[1], data[2])
+                        )
+            else:
+                if collate:
+                    lines.append(data)
+                else:
+                    bot.say(data)
+        if collate:
+            msg = "Times for group (%s): %%s" % event.argument
+            pastehelper(bot, msg, items=lines, altmsg="%s", force=True, title=msg[:-4])
+        return
     # continue if only single user:
     loc = location_module.getLocationWithError(bot, event.argument, event.nick)
     if not loc:

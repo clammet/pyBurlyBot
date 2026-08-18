@@ -41,15 +41,9 @@ MAX_REMIND_TIME = 157700000  # 5 year
 
 
 def deliver_tell(event: Event, bot: BotLike) -> None:
-    # if alias module available use it
-    user = None
-    if bot.isModuleAvailable("alias"):
-        # pretty convoluted but faster than fetching both modules every time
-        # may return none if this event gets captured for a first time user before user module
-        # also faster this way than making 2 db calls for USER_MODULE.get_username
-        user = bot.getModule("alias").lookup_alias(bot.dbQuery, event.nick)
-    if not user:
-        user = event.nick
+    # resolve_nick over get_username: one db call, and no user-table check that
+    # could miss a first-time user whose row user_update hasn't written yet
+    user = bot.getModule("users").resolve_nick(bot, event.nick) or event.nick
     toldtime = int(timegm(gmtime()))
     # Claim before sending. This intentionally provides at-most-once delivery:
     # a process failure after this statement can lose a tell, but cannot duplicate it.
