@@ -63,6 +63,7 @@ KEYS_MAIN = (
     "enablestate",
     "logfile",
     "modules",
+    "threadpoolsize",
     "servers",
 )
 KEYS_MAIN_SET = set(KEYS_MAIN)
@@ -94,6 +95,7 @@ OPTION_TYPES: dict[str, type | tuple[type, ...]] = {
     "sasl_password": str,
     "sasl_username": str,
     "serverlabel": str,
+    "threadpoolsize": int,
     "verify": bool,
 }
 # list-typed options whose elements must all be strings
@@ -592,6 +594,12 @@ class SettingsBase:
     verify: bool = True
     console: bool = True
     logfile: str | None = None
+    # 0 keeps Twisted's default (max 10 workers). Every mapped handler runs in
+    # a pool worker, and workers are pinned by blocking HTTP, DB round-trips
+    # and send_and_wait waits — so size for peak concurrent handlers. A busy
+    # multi-server bot is comfortable around 16-24; idle threads only cost
+    # stack reservation (~8 MB virtual each), so oversizing is cheap.
+    threadpoolsize: int = 0
     modules: list[str] | tuple[()] = ()
     _admins: list[str] | tuple[()] = ()
     botdir: str | None = None
@@ -814,6 +822,9 @@ class SettingsBase:
             log.startLogging(
                 open(join(self.botdir, self.logfile), "a"), setStdout=False
             )
+
+        if self.threadpoolsize:
+            reactor.suggestThreadPoolSize(self.threadpoolsize)
 
         # setup global database and databasemanager
         self.databasemanager = DBManager(self.datadir, self.datafile)
