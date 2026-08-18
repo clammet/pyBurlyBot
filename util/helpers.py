@@ -395,24 +395,27 @@ def parseDateTime(
                         count += 1
                         continue
                 if (index < 6) and (dd.day >= pd.day):
-                    month = month + 1
-                    if month > 12:
-                        pd = pd.replace(month=1, year=dd.year + 1)
-                    else:
-                        pd = pd.replace(month=dd.month + 1)
+                    # day already passed this month: advance to the next month
+                    # that can hold the provided day (may wrap into next year)
+                    month += 1
+                    count = 0
+                    while True:
+                        if count > 10:
+                            return None
+                        try:
+                            pd = pd.replace(
+                                month=(month - 1) % 12 + 1,
+                                year=dd.year + (month - 1) // 12,
+                            )
+                            break
+                        except ValueError:
+                            month += 1
+                            count += 1
             # add day
             if index >= 6:
                 pd = pd.replace(day=dd.day)
-                if (dd.hour == pd.hour) and (dd.minute >= pd.minute):
-                    try:
-                        pd = pd.replace(day=dd.day + 1)
-                    except ValueError:
-                        pd = pd.replace(day=1, month=dd.month + 1)
-                elif dd.hour > pd.hour:
-                    try:
-                        pd = pd.replace(day=dd.day + 1)
-                    except ValueError:
-                        pd = pd.replace(day=1, month=dd.month + 1)
+                if (dd.hour, dd.minute) >= (pd.hour, pd.minute):
+                    pd += timedelta(days=1)
             break
         else:
             # check Mon(day), Tues(day), etc
@@ -439,28 +442,18 @@ def parseDateTime(
                 # finally check for lunch
                 if s == "lunch":
                     if dd.hour >= 12:
-                        return timegm(
-                            dd.replace(
-                                day=dd.day + 1, hour=12, minute=0, second=0
-                            ).timetuple()
-                        )
-                    else:
-                        return timegm(
-                            dd.replace(hour=12, minute=0, second=0).timetuple()
-                        )
+                        dd += timedelta(days=1)
+                    return timegm(dd.replace(hour=12, minute=0, second=0).timetuple())
                 return None
-            pd = dd.replace(day=dd.day + days, hour=0, minute=0, second=0)
+            pd = (dd + timedelta(days=days)).replace(hour=0, minute=0, second=0)
         return timegm(pd.timetuple())
 
     if s == "tomorrow":
         # special case similar to above
         dd = datetime.fromtimestamp(t, UTC).replace(tzinfo=None)
-        if dd.hour < 5:
-            return timegm(dd.replace(hour=7, minute=0, second=0).timetuple())
-        else:
-            return timegm(
-                dd.replace(day=dd.day + 1, hour=7, minute=0, second=0).timetuple()
-            )
+        if dd.hour >= 5:
+            dd += timedelta(days=1)
+        return timegm(dd.replace(hour=7, minute=0, second=0).timetuple())
 
     if s.startswith("in"):
         # relative time. e.g. 5minutes, 10hours, 3days
