@@ -7,13 +7,34 @@ tell.py and alert.py, so the module loader never activates it directly.
 from collections.abc import Iterable
 from calendar import timegm
 from collections import deque
-from time import gmtime, localtime, struct_time
+from datetime import UTC, datetime
+from time import gmtime, localtime, mktime, struct_time
 from types import ModuleType
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from util import argumentSplit, parseDateTime
 from util.settings import ConfigException
 from util.types import BotLike
+
+
+def _load_zone(zone_id: str) -> ZoneInfo | None:
+    try:
+        return ZoneInfo(zone_id)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return None
+
+
+def _walltime_to_epoch(ntime: int | float, zone: ZoneInfo | None) -> float:
+    """Convert a walltime-as-UTC epoch (parseDateTime's working representation)
+    to a real UTC epoch using the offset in effect at the *target* instant,
+    so absolute datespecs land right across DST transitions. zone=None means
+    the server's local timezone."""
+    walltime = datetime.fromtimestamp(ntime, UTC).replace(tzinfo=None)
+    if zone is not None:
+        return walltime.replace(tzinfo=zone).timestamp()
+    # datetime.timetuple() sets tm_isdst=-1: mktime resolves DST at the target
+    return mktime(walltime.timetuple())
 
 
 def _pull_spaced_units(dtime: str, msg: str) -> tuple[str, str]:
@@ -89,13 +110,27 @@ def resolve_user_time(
     if not ntime:
         return None, 0.0, origintime
 
+    # Absolute specs name a walltime, so they convert with the offset at the
+    # target instant (DST-correct); relative specs are durations from now, so
+    # they keep plain offset arithmetic (elapsed time is what was asked for).
+    spec = dtime.strip().lower()
+    absolute = spec.startswith(("on", "at", "tomorrow"))
     # go on, change it. I dare you.
     if tz:
         current_time = timegm(t) - tz[2] - tz[3]
-        ntime = ntime - tz[2] - tz[3]
+        zone = _load_zone(tz[0]) if absolute else None
+        if zone is not None:
+            ntime = _walltime_to_epoch(ntime, zone)
+        else:
+            # relative spec, or a zone id the tzdata doesn't know: use the
+            # offsets sampled at command time
+            ntime = ntime - tz[2] - tz[3]
     else:
         current_time = timegm(t) - localoffset
-        ntime = ntime - localoffset
+        if absolute:
+            ntime = _walltime_to_epoch(ntime, None)
+        else:
+            ntime = ntime - localoffset
     return ntime, current_time, origintime
 
 
