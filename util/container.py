@@ -242,11 +242,9 @@ class Container:
     # stop event optional since you can just bail out of the generator if you know you have all
     # the things you want
     # f is the send function you want to call to start the waiting
-    # Warning: if you are not using stopevents and you are doing many blocking operations before your
-    # function using send_and_wait finishes, the generator won't have been GC'd for cleanup so bad things might happen.
-    # generator.close() if you suspect that your function won't be finished for some time after bailing from a generator.
-    # BIG WARNING: iterate over the generator with something like "for e in bot.send_and_wait(...
-    #     May leak very fast if you have unhandled exceptions inside the loop, (the above mitigates this I think...)
+    # Cleanup runs in the finally below, so bailing out of (or raising inside)
+    # the consuming loop is safe once the generator is closed/GC'd. If your
+    # function keeps running long after bailing, generator.close() promptly.
     def send_and_wait(
         self,
         interestede: EventTypes,
@@ -273,8 +271,8 @@ class Container:
             # send...
             f(*fargs, **kwargs)
             # and now we play the waiting game...
-            # TODO: how should expired/timeouts work? Should timeout "reset" after the last
-            # seen event? Or should it act as "run for this long total"
+            # timeout is "run for this long total" (never resets on events);
+            # open questions about hung-thread failsafes are tracked in #59
             while not wd.done:
                 try:
                     item = wd.q.get(timeout=0.5)
