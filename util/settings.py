@@ -66,6 +66,38 @@ KEYS_MAIN = (
     "servers",
 )
 KEYS_MAIN_SET = set(KEYS_MAIN)
+# expected JSON types per config key, enforced at load (#14). "modules" and
+# "servers" have bespoke validation in _loadsettings.
+OPTION_TYPES: dict[str, type | tuple[type, ...]] = {
+    "admins": list,
+    "allowmodules": (list, set),  # set is the internal round-trip form
+    "altnicks": (list, str),  # a bare string is coerced to a one-element list
+    "cert": str,
+    "channels": list,
+    "commandprefix": str,
+    "console": bool,
+    "datadir": str,
+    "datafile": str,
+    "debug": int,
+    "denymodules": (list, set),  # set is the internal round-trip form
+    "enablestate": bool,
+    "encoding": str,
+    "host": str,
+    "insecure": bool,
+    "logfile": str,
+    "moduleopts": dict,
+    "nick": str,
+    "nickservpass": str,
+    "nicksuffix": str,
+    "port": (int, str),
+    "sasl_authzid": str,
+    "sasl_password": str,
+    "sasl_username": str,
+    "serverlabel": str,
+    "verify": bool,
+}
+# list-typed options whose elements must all be strings
+KEYS_STR_LIST = {"admins", "allowmodules", "altnicks", "denymodules"}
 # keys to create a copy of so no threading bads
 KEYS_COPY = {"admins", "channels", "allowmodules", "denymodules", "modules"}
 # keys to deny getOption for:
@@ -119,6 +151,36 @@ EXAMPLE_OPTS2 = {
 
 class ConfigException(Exception):
     pass
+
+
+def _validate_option(key: str, value: Any) -> None:
+    expected = OPTION_TYPES.get(key)
+    if expected is None:
+        return
+    allowed = expected if isinstance(expected, tuple) else (expected,)
+    # bool subclasses int: only accept it where bool is actually expected
+    ok = (bool in allowed) if isinstance(value, bool) else isinstance(value, allowed)
+    if not ok:
+        raise ConfigException(
+            "Option %s must be %s (got %s)."
+            % (key, " or ".join(t.__name__ for t in allowed), type(value).__name__)
+        )
+    if key in KEYS_STR_LIST and isinstance(value, (list, set)):
+        if not all(isinstance(item, str) for item in value):
+            raise ConfigException("Option %s must be a list of strings." % key)
+    if key == "channels":
+        for entry in value:
+            if isinstance(entry, str):
+                continue
+            if (
+                isinstance(entry, (list, tuple))
+                and entry
+                and all(isinstance(item, str) for item in entry)
+            ):
+                continue
+            raise ConfigException(
+                'channels entries must be "#chan" or ["#chan", "key"].'
+            )
 
 
 class NoDefault:
@@ -209,6 +271,8 @@ class BaseServer:
         self.denymodules = set()
         for key in KEYS_SERVER:
             opt = opts.get(key, None)
+            if opt is not None:
+                _validate_option(key, opt)
             if key == "serverlabel":
                 if opt is None:
                     raise ConfigException("Missing serverlabel.")
@@ -589,6 +653,8 @@ class SettingsBase:
                         "The modules option must be an array of names."
                     )
                 value = list(dict.fromkeys(value))
+            else:
+                _validate_option(option_name, value)
             setattr(candidate, option_name, value)
         if bool(candidate.sasl_username) != bool(candidate.sasl_password):
             raise ConfigException(

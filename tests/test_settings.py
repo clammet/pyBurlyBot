@@ -102,6 +102,31 @@ class SettingsTest(TestCase):
             self.assertEqual(settings.nick, "Stable")
             self.assertEqual(set(settings.servers), {"stable-network"})
 
+    def test_config_options_are_type_checked(self) -> None:
+        base = {"serverlabel": "typed", "host": "irc.example.net"}
+        with self.assertRaises(ConfigException):
+            BaseServer({**base, "channels": "#chan"})  # iterates char-by-char
+        with self.assertRaises(ConfigException):
+            BaseServer({**base, "channels": ["#ok", 5]})
+        with self.assertRaises(ConfigException):
+            BaseServer({**base, "admins": "clam"})
+        with self.assertRaises(ConfigException):
+            BaseServer({"serverlabel": "typed", "host": 6667})
+        # altnicks accepts a bare string (documented coercion)
+        server = BaseServer({**base, "altnicks": "alt1"})
+        self.assertEqual(server.altnicks, ["alt1"])
+
+    def test_main_config_options_are_type_checked(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir, "BurlyBot.json")
+            config_path.write_text(
+                dumps({"debug": True, "servers": []}), encoding="utf-8"
+            )
+            settings = SettingsBase()
+            settings.configfile = str(config_path)
+            with self.assertRaises(ConfigException):
+                settings.reloadStage1()
+
     def test_module_reload_re_arms_signedon_when_connected(self) -> None:
         server = Server({"serverlabel": "reload-test", "host": "irc.example.org"})
         posted: list[str] = []
