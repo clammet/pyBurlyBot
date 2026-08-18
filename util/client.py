@@ -1359,6 +1359,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
         strins: str | list[str] | tuple[str, ...] | dict[str, str] | None = None,
         fcfs: bool = False,
         joinsep: str | None = None,
+        dropwhole: bool = False,
     ) -> str:
         enc = self.settings.encoding
         if isinstance(strins, str):
@@ -1389,6 +1390,27 @@ class BurlyBot(IRCClient, TimeoutMixin):
             if avail < 0:  # case where template string is already too big
                 s = s.format(*[""] * ls)
                 return splitEncodedUnicode(s, len(s) + avail, encoding=enc)[0][0]
+            if dropwhole:
+                # drop whole entries that don't fit rather than truncating
+                # mid-entry; a later, shorter entry may still be included
+                if not isinstance(strins, list):
+                    strins = list(strins)
+                if joinsep is None:
+                    for i, replacement in enumerate(strins):
+                        need = len(replacement.encode(enc))
+                        if need <= avail:
+                            avail -= need
+                        else:
+                            strins[i] = ""
+                    return s.format(*strins)
+                kept: list[str] = []
+                for replacement in strins:
+                    sep = joinsep if kept else ""
+                    need = len((sep + replacement).encode(enc))
+                    if need <= avail:
+                        kept.append(sep + replacement)
+                        avail -= need
+                return s.format("".join(kept))
             if fcfs:
                 # first come first served
                 if not isinstance(strins, list):

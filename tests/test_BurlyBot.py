@@ -216,3 +216,25 @@ class BurlyBotProtocolTest(TestCase):
             protocol._buildmsg("#test", "first\nsecond", split=True),
             ["PRIVMSG #test :first", "PRIVMSG #test :second"],
         )
+
+    def test_assemble_msg_dropwhole_drops_entries_that_do_not_fit(self) -> None:
+        protocol = self.make_protocol()
+        protocol.calcAvailableMsgLength = lambda command: 20  # type: ignore[method-assign]
+        self.assertEqual(
+            protocol.assembleMsgWLen(
+                "{0}",
+                strins=["12345678", "123456789012345", "1234567"],
+                joinsep=", ",
+                dropwhole=True,
+            ),
+            "12345678, 1234567",
+        )
+        # without joinsep, non-fitting slots collapse to empty strings
+        self.assertEqual(
+            protocol.assembleMsgWLen(
+                "{0}{1}{2}",
+                strins=["123456789012", "123456789012345", "12345678"],
+                dropwhole=True,
+            ),
+            "12345678901212345678",
+        )

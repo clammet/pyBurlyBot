@@ -10,11 +10,10 @@ REQUIRES = ("googleapi",)
 RESULT_SPELL_TEXT = "(SP: %s?) {0}: {1} (%s)"
 RESULT_TEXT = "{0}: {1} (%s)"
 
-RESULTS_SPELL_IMG = "(SP: %s?) {0}{1}{2}{3}"
-RESULTS_IMG = "{0}{1}{2}{3}"
+RESULTS_SPELL_IMG = "(SP: %s?) {0}"
+RESULTS_IMG = "{0}"
 # title (url)
 RESULT_IMG = "%s (%s)"
-RESULT_IMG2 = ", %s (%s)"
 
 NUM_IMGS = 4
 
@@ -47,22 +46,18 @@ def google_image(event: Event, bot: BotLike) -> None:
     )
     # TODO: consider displaying img stats like file size and resolution?
     if results:
-        entries: list[str] = []
-        # TODO: the following should probably be handled in the smart unicode cropping thing
-        #     or in a smarter generic result splitter thing.
-        # TODO: (also) this is basically double iterating over the results. Griff fix later please, thanks.
-        for item in results:
-            if entries:
-                entries.append(RESULT_IMG2 % (item[0], item[1]))
-            else:
-                entries.append(RESULT_IMG % (item[0], item[1]))
-        if len(entries) < NUM_IMGS:
-            entries = entries + [""] * (NUM_IMGS - len(entries))
-
+        # dropwhole: entries that don't fit are dropped whole, so no URL is
+        # ever cut in half
+        entries = [RESULT_IMG % (item[0], item[1]) for item in results]
         if spelling:
-            bot.say(RESULTS_SPELL_IMG % spelling, fcfs=True, strins=entries)
+            bot.say(
+                RESULTS_SPELL_IMG % spelling,
+                strins=entries,
+                joinsep=", ",
+                dropwhole=True,
+            )
         else:
-            bot.say(RESULTS_IMG, fcfs=True, strins=entries)
+            bot.say(RESULTS_IMG, strins=entries, joinsep=", ", dropwhole=True)
     else:
         if spelling:
             bot.say("(SP: %s) No results found." % spelling)
