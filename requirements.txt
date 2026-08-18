@@ -2,5 +2,4 @@ beautifulsoup4==4.15.0
 Hyphenate==1.1.0
 lxml==6.1.1
 Twisted[tls]==26.4.0
-Whoosh==2.7.4
 wikipedia==1.4.0
