@@ -9,6 +9,10 @@ services:
       PYBB_HEARTBEAT_FILE: state/.heartbeat
     volumes:
       - pyburlybot_data:/app/state
+      # Shared datasets: one volume per /app/shared/<name>, rw here, ro in the
+      # consumer (e.g. the reverse proxy serving pastes). Add new shared
+      # datasets the same way rather than exposing /app/state.
+      - pyburlybot_pastes:/app/shared/pastes
     # Reload webhook (webhook module, listen_host 0.0.0.0): host-loopback only.
     # ports:
     #   - "127.0.0.1:8642:8642"
@@ -24,3 +28,5 @@ services:
 volumes:
   pyburlybot_data:
     name: pyburlybot_data
+  pyburlybot_pastes:
+    name: pyburlybot_pastes

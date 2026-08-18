@@ -26,12 +26,15 @@ COPY --chown=burlybot:burlybot . .
 RUN chown burlybot:burlybot /app \
     && git config --system --add safe.directory /app \
     && chown -R burlybot:burlybot /opt/venv \
-    && mkdir -p /app/state \
-    && chown burlybot:burlybot /app/state
+    && mkdir -p /app/state /app/shared/pastes \
+    && chown -R burlybot:burlybot /app/state /app/shared
 
 USER burlybot
 
-# All persistent state (config, sqlite DBs, log search index, pastes) lives here.
+# All private persistent state (config, sqlite DBs, log search index) lives here.
 VOLUME /app/state
+# /app/shared/<name>: data another container reads (e.g. pastes served by the
+# reverse proxy). One volume per dataset, mounted here rw and elsewhere ro.
+# Pre-created + chowned above so a fresh named volume inherits UID 1000.
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker/entrypoint.sh"]

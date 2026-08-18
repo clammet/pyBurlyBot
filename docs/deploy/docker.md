@@ -62,18 +62,22 @@ state/
 ├── BurlyBot.json    # config — the bot REWRITES this (!config), see below
 ├── data/            # sqlite DBs (WAL — mount the directory, never one file)
 ├── logindex/        # Whoosh chat-log search index
-├── pastes/          # selfpaste output (if enabled)
 └── .heartbeat       # touched every 30s for the healthcheck
 ```
 
-For this layout the config must point its relative paths into `state/`:
+`/app/state` is private to the bot (it holds API keys and DBs). Anything
+another container must read lives in a **separate mount under
+`/app/shared/`** — see the next section.
+
+For this layout the config must point its relative paths into `state/` (and
+shared datasets into `shared/`):
 
 ```json
 {
     "datadir": "state/data",
     "moduleopts": {
         "logindexsearch": {"indexdir": "state/logindex"},
-        "selfpaste": {"wwwroot": "state/pastes/"},
+        "selfpaste": {"wwwroot": "shared/pastes/"},
         "updaterelaunch": {"update_debounce": 30}
     }
 }
@@ -90,6 +94,69 @@ Two hard rules:
 
 If no config exists on first start, the entrypoint writes a starter config
 to `state/BurlyBot.json` and exits 1 so you can edit it.
+
+## Shared data: `/app/shared/<name>`
+
+Some modules produce files that a *different* container serves or consumes.
+`selfpaste` is the first: it only writes static `<token>.txt`/`.html` files
+(mode 0644) into `wwwroot` and returns `url_prefix + filename`; serving them
+is the reverse proxy's job.
+
+The pattern, one volume per dataset:
+
+```
+/app/shared/
+└── pastes/          # selfpaste wwwroot — mounted ro by the reverse proxy
+```
+
+- The image pre-creates `/app/shared/<name>` owned by UID 1000, so a fresh
+  named volume mounted there inherits that ownership and the bot can write
+  into it. **Add a `mkdir`/`chown` for any new dataset in the Dockerfile.**
+- The bot mounts it read-write; every consumer mounts the *same* volume
+  read-only. Never hand out `/app/state` instead — it is `0700` and contains
+  secrets.
+- Bind-mount deployments use a host directory per dataset,
+  pre-created `1000:1000` mode `0755`, e.g.
+  `{{ pyburlybot_host_dir }}/shared/pastes`.
+
+Bot side (`docker-compose.yml`):
+
+```yaml
+    volumes:
+      - pyburlybot_data:/app/state
+      - pyburlybot_pastes:/app/shared/pastes
+volumes:
+  pyburlybot_pastes:
+    name: pyburlybot_pastes
+```
+
+Reverse-proxy side (its own compose file, same host):
+
+```yaml
+    volumes:
+      - pyburlybot_pastes:/srv/pyburlybot/pastes:ro
+volumes:
+  pyburlybot_pastes:
+    external: true
+```
+
+with an nginx `location` matching `url_prefix`:
+
+```nginx
+location /paste/ {
+    alias /srv/pyburlybot/pastes/;
+    autoindex off;
+    add_header X-Content-Type-Options nosniff;
+}
+```
+
+and `"selfpaste": {"url_prefix": "https://example.test/paste/"}` in the
+config. Bring the bot up first so the volume exists before the proxy
+references it as `external`.
+
+To share a new dataset later: add `mkdir -p /app/shared/<name>` to the
+Dockerfile, a `pyburlybot_<name>` volume in both compose files, and point the
+module's option at `shared/<name>/`.
 
 ## Webhooks: reload and update
 
