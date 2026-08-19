@@ -46,8 +46,10 @@ be deployable.** A broken merge to main will be picked up automatically.
 
 - Base `python:3.14-slim`, plus `git` and `tini` (PID 1; the log indexer
   forks `multiprocessing` children that need reaping).
-- Runs as non-root user `burlybot` (UID 1000), which owns `/app` and
-  `/opt/venv`.
+- Runs as non-root user `burlybot` (UID/GID 10002 — a dedicated identity far
+  above the range where hosts create interactive users, so the owner of
+  bind-mounted state can never coincide with a human login), which owns
+  `/app` and `/opt/venv`.
 - `WORKDIR /app` is the checkout; all bot paths are CWD-relative.
 - Built and pushed by `.github/workflows/docker-image.yml` on every push to
   `main`: `ghcr.io/clammet/pyburlybot:latest` (+ a per-commit SHA tag).
@@ -107,14 +109,14 @@ The pattern, one volume per dataset:
 └── pastes/          # selfpaste wwwroot — mounted ro by the reverse proxy
 ```
 
-- The image pre-creates `/app/shared/<name>` owned by UID 1000, so a fresh
+- The image pre-creates `/app/shared/<name>` owned by UID 10002, so a fresh
   named volume mounted there inherits that ownership and the bot can write
   into it. **Add a `mkdir`/`chown` for any new dataset in the Dockerfile.**
 - The bot mounts it read-write; every consumer mounts the *same* volume
   read-only. Never hand out `/app/state` instead — it is `0700` and contains
   secrets.
 - Bind-mount deployments use a host directory per dataset,
-  pre-created `1000:1000` mode `0755`, e.g.
+  pre-created `10002:10002` mode `0755`, e.g.
   `{{ pyburlybot_host_dir }}/shared/pastes`.
 
 Bot side (`docker-compose.yml`):

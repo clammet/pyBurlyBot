@@ -19,7 +19,14 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN useradd --create-home --uid 1000 burlybot
+# Dedicated fixed identity, deliberately far above the distro interactive-user
+# range (uid 1000+ is where hosts create real people; 10001 is passwordreset's)
+# so the account owning the bind-mounted state on a host can never coincide
+# with a human login there. Deployments pre-chown their mounts to this UID/GID.
+ARG RUN_UID=10002
+ARG RUN_GID=10002
+RUN groupadd --gid "${RUN_GID}" burlybot \
+    && useradd --create-home --uid "${RUN_UID}" --gid burlybot burlybot
 
 # .git is deliberately included: runtime self-update needs a real checkout.
 COPY --chown=burlybot:burlybot . .
