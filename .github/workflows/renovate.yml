@@ -6,7 +6,8 @@ on:
     - cron: "27 * * * *"
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  actions: write
 
 concurrency:
   group: renovate
@@ -16,6 +17,20 @@ jobs:
   renovate:
     runs-on: ubuntu-latest
     steps:
+      # GitHub disables cron triggers after 60 days without repository
+      # activity. Re-enabling an active workflow resets that clock, so this
+      # keeps every scheduled workflow alive while leaving manually disabled
+      # ones alone.
+      - name: Keep scheduled workflows alive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows" \
+            --jq '.workflows[] | select(.state == "active" or .state == "disabled_inactivity") | .id' \
+          | while read -r id; do
+              gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${id}/enable"
+            done
+
       # Authenticates as the repo's Renovate GitHub App. Required app
       # permissions: Contents RW, Pull requests RW, Workflows RW, Checks R,
       # Commit statuses R, Dependabot alerts R, Metadata R, Issues RW
