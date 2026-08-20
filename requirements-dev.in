@@ -6,5 +6,5 @@
 #
 # The equals-form flags matter: Renovate parses the command header in
 # requirements-dev.txt and rejects space-separated option arguments.
-mypy==2.3.0
+mypy==2.3.1
 ruff==0.16.2
