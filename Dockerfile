@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 # Pinned by digest; Renovate PRs tag/digest bumps and CI proves them. Rebuilds
 # stay deliberate (the bot self-updates in-process), so a merged bump reaches a
 # host only when someone chooses to rebuild and redeploy the image.
