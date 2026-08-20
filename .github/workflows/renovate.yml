@@ -13,6 +13,14 @@ concurrency:
   group: renovate
   cancel-in-progress: false
 
+env:
+  # Exact Renovate engine pin; the action's own default is the floating `44`
+  # tag. Renovate bumps it weekly through the customManagers:githubActionsVersions
+  # preset in the repo's Renovate config (the annotation must stay on the line
+  # directly above the variable).
+  # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
+  RENOVATE_VERSION: 44.35.4
+
 jobs:
   renovate:
     runs-on: ubuntu-latest
@@ -34,18 +42,18 @@ jobs:
       # Authenticates as the repo's Renovate GitHub App. Required app
       # permissions: Contents RW, Pull requests RW, Workflows RW, Checks R,
       # Commit statuses R, Dependabot alerts R, Metadata R, Issues RW
-      # (dependency dashboard). Secrets: RENOVATE_APP_ID,
+      # (dependency dashboard). Variable RENOVATE_APP_CLIENT_ID, secret
       # RENOVATE_APP_PRIVATE_KEY. Repo config: .github/renovate.json5.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         with:
-          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          client-id: ${{ vars.RENOVATE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
 
       - uses: renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2
         with:
           token: ${{ steps.app-token.outputs.token }}
-          renovate-version: 44.34.3 # renovate: depName=ghcr.io/renovatebot/renovate
+          renovate-version: ${{ env.RENOVATE_VERSION }}
         env:
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           RENOVATE_ONBOARDING: "false"

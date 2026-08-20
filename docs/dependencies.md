@@ -12,7 +12,7 @@ merge themselves.
 | Python packages (all, incl. transitive) | version + sha256 hashes | `requirements.txt`, `requirements-dev.txt` (compiled lockfiles) |
 | Docker base image | tag + digest | `Dockerfile` |
 | GitHub Actions | commit SHA (+ version comment) | `.github/workflows/*.yml` |
-| Renovate itself | exact `renovate-version` | `.github/workflows/renovate.yml` |
+| Renovate itself | exact `RENOVATE_VERSION` env pin, bumped weekly | `.github/workflows/renovate.yml` |
 
 The deploy side pins the *published* image by digest in the yuzuyu repo, not
 here; `docker-compose.yml` in this repo is local/dev and builds from source.
@@ -49,7 +49,8 @@ GitHub App; repo behavior lives in `.github/renovate.json5`.
 - App permissions: Contents RW, Pull requests RW, Workflows RW (action digest
   bumps edit workflow files), Checks R, Commit statuses R, Dependabot alerts R,
   Metadata R, Issues RW (dependency dashboard).
-- Actions secrets: `RENOVATE_APP_ID`, `RENOVATE_APP_PRIVATE_KEY`.
+- Actions variable `RENOVATE_APP_CLIENT_ID` (the app's Client ID; public) and
+  secret `RENOVATE_APP_PRIVATE_KEY`.
 - The dependency dashboard issue lists everything pending, including majors
   waiting on a human.
 

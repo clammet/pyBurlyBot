@@ -2,12 +2,15 @@
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   // best-practices pins action + docker digests and enables config migration
   // and the dependency dashboard (via config:recommended).
-  extends: ['config:best-practices'],
+  extends: ['config:best-practices', 'customManagers:githubActionsVersions'],
   timezone: 'Australia/Sydney',
   labels: ['dependencies'],
   // Self-hosted hourly runner; Renovate's own rate limits just add latency.
   prHourlyLimit: 0,
   prConcurrentLimit: 10,
+  // Fleet-standard soak: let a release age before adopting it. Vulnerability
+  // fix PRs (Dependabot alerts / OSV) skip it.
+  minimumReleaseAge: '3 days',
   // requirements*.in/.txt belong to the pip-compile manager (it reads the
   // compile command from each lockfile's header); stop the plain
   // requirements-file manager from double-managing them.
@@ -34,6 +37,22 @@
       automerge: true,
     },
     {
+      description: 'Majors wait for a human',
+      matchUpdateTypes: ['major'],
+      automerge: false,
+    },
+    {
+      description: '0.x minors are breaking by semver convention - hold them for a human',
+      matchCurrentVersion: '<1.0.0',
+      matchUpdateTypes: ['minor'],
+      automerge: false,
+    },
+    {
+      description: 'Pins and digest refreshes point at code that already shipped - no soak needed',
+      matchUpdateTypes: ['pin', 'pinDigest', 'digest'],
+      minimumReleaseAge: null,
+    },
+    {
       description: 'A Python minor is a runtime upgrade (bump ruff target-version, CI python-version alongside): human decision',
       matchDatasources: ['docker'],
       matchDepNames: ['python'],
@@ -46,19 +65,10 @@
       enabled: false,
     },
     {
-      description: 'Renovate ships several patches a day; bump it weekly instead. No digest pin: the custom manager only captures a version, and renovate-version must stay a plain version anyway - a digest here fails the whole pin-dependencies branch.',
+      description: 'Renovate engine: several releases a day, so take the weekly one; no digest pin because the annotated RENOVATE_VERSION env var holds a plain tag',
       matchDepNames: ['ghcr.io/renovatebot/renovate'],
       schedule: ['before 6am on monday'],
       pinDigests: false,
-    },
-  ],
-  customManagers: [
-    {
-      customType: 'regex',
-      description: 'Track the pinned renovate-version in the Renovate workflow',
-      managerFilePatterns: ['/^\\.github/workflows/renovate\\.yml$/'],
-      matchStrings: ['renovate-version: (?<currentValue>\\S+) # renovate: depName=(?<depName>\\S+)'],
-      datasourceTemplate: 'docker',
     },
   ],
 }
