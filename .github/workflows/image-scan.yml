@@ -1,0 +1,32 @@
+name: Image CVE scan
+
+on:
+  schedule:
+    # Weekly scan of the published image: catches CVEs disclosed in already
+    # merged (OS packages especially) dependencies between Renovate merges.
+    - cron: "43 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/clammet/pyburlybot:latest
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          # red run = notification; findings also land in the Security tab
+          exit-code: "1"
+
+      - uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        if: always()
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-image

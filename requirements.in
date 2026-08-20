@@ -1,0 +1,11 @@
+# Direct runtime dependencies, pinned exactly. Renovate bumps these pins and
+# recompiles requirements.txt (the hashed lockfile the container and the
+# updaterelaunch module actually install from). To recompile by hand:
+#
+#   docker run --rm -v "$PWD":/w -w /w ghcr.io/astral-sh/uv:python3.14-bookworm-slim \
+#     uv pip compile --universal --generate-hashes --python-version 3.14 requirements.in -o requirements.txt
+beautifulsoup4==4.15.0
+Hyphenate==1.1.0
+lxml==6.1.1
+Twisted[tls]==26.4.0
+wikipedia==1.4.0

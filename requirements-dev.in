@@ -1,0 +1,7 @@
+# Dev/CI tooling, pinned exactly. Compiled against requirements.txt as a
+# constraint so shared transitives resolve to the same versions. To recompile:
+#
+#   docker run --rm -v "$PWD":/w -w /w ghcr.io/astral-sh/uv:python3.14-bookworm-slim \
+#     uv pip compile --universal --generate-hashes --python-version 3.14 -c requirements.txt requirements-dev.in -o requirements-dev.txt
+mypy==2.3.0
+ruff==0.16.2

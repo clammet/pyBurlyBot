@@ -114,8 +114,7 @@ class ModuleRegistry:
                 "MODULE(S) NOT ACTIVE ON %s:\n%s",
                 server,
                 "\n".join(
-                    "  %s: %s" % (module, reason)
-                    for module, reason in failures.items()
+                    "  %s: %s" % (module, reason) for module, reason in failures.items()
                 ),
             )
 

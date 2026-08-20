@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
-# Unpinned minor: rebuilds (always deliberate; the bot self-updates in-process)
-# pick up the latest stable Python.
-FROM python:3-slim
+# Pinned by digest; Renovate PRs tag/digest bumps and CI proves them. Rebuilds
+# stay deliberate (the bot self-updates in-process), so a merged bump reaches a
+# host only when someone chooses to rebuild and redeploy the image.
+FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4
 
 # git: the bot self-updates its own checkout at runtime (updaterelaunch module).
 # tini: PID 1 reaper so no module that forks children can leave zombies.

@@ -1,0 +1,63 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  // best-practices pins action + docker digests and enables config migration
+  // and the dependency dashboard (via config:recommended).
+  extends: ['config:best-practices'],
+  timezone: 'Australia/Sydney',
+  labels: ['dependencies'],
+  // Self-hosted hourly runner; Renovate's own rate limits just add latency.
+  prHourlyLimit: 0,
+  prConcurrentLimit: 10,
+  // requirements*.in/.txt belong to the pip-compile manager (it reads the
+  // compile command from each lockfile's header); stop the plain
+  // requirements-file manager from double-managing them.
+  pip_requirements: { enabled: false },
+  'pip-compile': {
+    managerFilePatterns: ['/^requirements(-dev)?\\.txt$/'],
+  },
+  // Weekly full lockfile recompile picks up transitive releases that no
+  // direct-pin bump would surface.
+  lockFileMaintenance: {
+    enabled: true,
+    automerge: true,
+  },
+  // The app token has Dependabot alerts: read, so alerts become PRs here
+  // (Dependabot's own PRs are disabled — see .github/dependabot.yml).
+  vulnerabilityAlerts: {
+    labels: ['security'],
+  },
+  osvVulnerabilityAlerts: true,
+  packageRules: [
+    {
+      description: 'Automerge non-major updates once required checks pass',
+      matchUpdateTypes: ['minor', 'patch', 'pin', 'pinDigest', 'digest'],
+      automerge: true,
+    },
+    {
+      description: 'A Python minor is a runtime upgrade (bump ruff target-version, CI python-version alongside): human decision',
+      matchDatasources: ['docker'],
+      matchDepNames: ['python'],
+      matchUpdateTypes: ['minor'],
+      automerge: false,
+    },
+    {
+      description: 'Own image in docker-compose.yml is built locally and rolled by deploy, not pinned here',
+      matchDepNames: ['ghcr.io/clammet/pyburlybot'],
+      enabled: false,
+    },
+    {
+      description: 'Renovate ships several patches a day; bump it weekly instead',
+      matchDepNames: ['ghcr.io/renovatebot/renovate'],
+      schedule: ['before 6am on monday'],
+    },
+  ],
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Track the pinned renovate-version in the Renovate workflow',
+      managerFilePatterns: ['/^\\.github/workflows/renovate\\.yml$/'],
+      matchStrings: ['renovate-version: (?<currentValue>\\S+) # renovate: depName=(?<depName>\\S+)'],
+      datasourceTemplate: 'docker',
+    },
+  ],
+}
