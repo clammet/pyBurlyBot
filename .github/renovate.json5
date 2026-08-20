@@ -46,9 +46,10 @@
       enabled: false,
     },
     {
-      description: 'Renovate ships several patches a day; bump it weekly instead',
+      description: 'Renovate ships several patches a day; bump it weekly instead. No digest pin: the custom manager only captures a version, and renovate-version must stay a plain version anyway - a digest here fails the whole pin-dependencies branch.',
       matchDepNames: ['ghcr.io/renovatebot/renovate'],
       schedule: ['before 6am on monday'],
+      pinDigests: false,
     },
   ],
   customManagers: [

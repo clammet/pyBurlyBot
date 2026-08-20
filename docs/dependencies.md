@@ -24,9 +24,13 @@ Edit the `.in` file (never the compiled `.txt`), then recompile:
 ```sh
 docker run --rm -v "$PWD":/w -w /w python:3.14-slim sh -c '
   pip install -q uv &&
-  uv pip compile --universal --generate-hashes --python-version 3.14 requirements.in -o requirements.txt &&
-  uv pip compile --universal --generate-hashes --python-version 3.14 -c requirements.txt requirements-dev.in -o requirements-dev.txt'
+  uv pip compile --universal --generate-hashes --python-version=3.14 --output-file=requirements.txt requirements.in &&
+  uv pip compile --universal --generate-hashes --python-version=3.14 --constraint=requirements.txt --output-file=requirements-dev.txt requirements-dev.in'
 ```
+
+Keep the equals-form flags. Renovate's pip-compile manager re-runs the
+command it finds in each lockfile's header and rejects space-separated
+option arguments, so `--python-version 3.14` breaks Python updates entirely.
 
 `--universal` makes one lockfile serve both the macOS dev venv and the Linux
 container; `--generate-hashes` puts pip into hash-verifying mode everywhere the
