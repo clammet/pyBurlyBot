@@ -222,3 +222,4 @@ python microirc.py LocalBot.json
 
 The bot and harness should use the same channel; their configured nicknames are
 already distinct because the harness appends `Test` by default.
+
