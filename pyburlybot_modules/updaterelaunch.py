@@ -54,12 +54,37 @@ _update_lock = Lock()
 # the next !update (or event-triggered check with auto_restart enabled) applies it
 _restart_pending = ThreadEvent()
 
+_NON_RUNTIME_PYTHON_PREFIXES = ("tests/",)
+
 
 class _Pending:
     """Debounce state for event-triggered checks. Touched only in the reactor thread."""
 
     call: Any = None  # twisted DelayedCall
     bot: BotLike | None = None
+
+
+def _classify_changes(changes: str) -> dict[str, bool]:
+    """Classify paths reported by ``git diff --name-status``."""
+    result = {"core": False, "modules": False, "deps": False, "any": False}
+    for line in changes.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 2:
+            continue
+        result["any"] = True
+        # Renames and copies report both the old and new path. Classify both so
+        # moving a live file out of its runtime location still applies it.
+        paths = fields[1:3] if fields[0].startswith(("R", "C")) else fields[1:2]
+        for path in paths:
+            if path.startswith("pyburlybot_modules/"):
+                result["modules"] = True
+            elif path == "requirements.txt":
+                result["deps"] = True
+            elif path.endswith(".py") and not path.startswith(
+                _NON_RUNTIME_PYTHON_PREFIXES
+            ):
+                result["core"] = True
+    return result
 
 
 def _check_and_apply(gitpath: str, branch: str) -> dict[str, bool]:
@@ -70,18 +95,7 @@ def _check_and_apply(gitpath: str, branch: str) -> dict[str, bool]:
         text=True,
         timeout=GIT_TIMEOUT,
     )
-    result = {"core": False, "modules": False, "deps": False, "any": False}
-    for line in changes.splitlines():
-        if "\t" not in line:
-            continue
-        _status, path = line.split("\t", 1)
-        result["any"] = True
-        if path.startswith("pyburlybot_modules/"):
-            result["modules"] = True
-        elif path == "requirements.txt":
-            result["deps"] = True
-        elif path.endswith(".py"):
-            result["core"] = True
+    result = _classify_changes(changes)
     if result["any"]:
         print("UPDATERELAUNCH CHANGES:\n%s" % changes)
         check_output(

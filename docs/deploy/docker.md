@@ -28,6 +28,8 @@ container:
   ignored. Module-only changes hot-reload silently; core changes restart in
   place (set `auto_restart` to `false` to instead merge and wait for an
   operator). There is no polling timer.
+- Changes under `tests/` are deployment metadata, not live bot code. They are
+  merged but do not turn an otherwise module-only update into a core restart.
 - **On container start** — the entrypoint fast-forwards the checkout before
   launching the bot, so even a months-old image comes up on current code.
   Dependencies are installed into a runtime-writable venv (`/opt/venv`), and

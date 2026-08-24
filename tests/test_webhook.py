@@ -491,6 +491,25 @@ class UpdateEventTest(TestCase):
         kwargs.setdefault("remote", "140.82.112.1")
         return Event("update", **kwargs)
 
+    def test_module_and_test_changes_do_not_require_a_restart(self) -> None:
+        changes = "\n".join(
+            (
+                "M\tpyburlybot_modules/tell.py",
+                "M\ttests/test_tell.py",
+            )
+        )
+        self.assertEqual(
+            updaterelaunch._classify_changes(changes),
+            {"core": False, "modules": True, "deps": False, "any": True},
+        )
+
+    def test_renamed_runtime_files_classify_both_paths(self) -> None:
+        changes = "R100\tutil/old.py\ttests/test_old.py"
+        self.assertEqual(
+            updaterelaunch._classify_changes(changes),
+            {"core": True, "modules": False, "deps": False, "any": True},
+        )
+
     def test_unauthorized_update_is_ignored(self) -> None:
         with patch("builtins.print"):
             updaterelaunch.update_event(self._event(authorized=False), self.bot)
