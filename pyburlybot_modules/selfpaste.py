@@ -27,9 +27,10 @@ TEMPLATE = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>%s</title>
+  <link rel="stylesheet" href="style/style.css">
 </head>
 <body>
-<h1>%s</h1>
+<h3>%s</h3>
 %s
 </body>
 </html>

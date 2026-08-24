@@ -39,6 +39,7 @@ REMINDFORMAT = "{0}, reminder from {1}: {2} - set {3}, arrived {4}."
 SELFREMINDFORMAT = "{0}, reminder: {1} - set {2}, arrived {3}."
 
 MAX_REMIND_TIME = 157700000  # 5 year
+MAX_REPLAY_BATCHES = 10
 
 
 def _render_tells(
@@ -110,7 +111,7 @@ def deliver_tell(event: Event, bot: BotLike) -> None:
 
 
 def tells(event: Event, bot: BotLike) -> None:
-    """tells [n]. Repeats your nth most recent batch of delivered tells/reminds (default: the last batch)."""
+    """tells [n]. Repeats your n most recent batches of delivered tells/reminds (default: 1, maximum: 10)."""
     user = bot.getModule("users").resolve_nick(bot, event.nick) or event.nick
     n = 1
     if event.argument:
@@ -120,21 +121,32 @@ def tells(event: Event, bot: BotLike) -> None:
         except ValueError:
             return bot.say(functionHelp(tells))
         n = max(n, 1)
+        if n > MAX_REPLAY_BATCHES:
+            return bot.say(
+                "Can only replay up to %d tell batches at once." % MAX_REPLAY_BATCHES
+            )
     # batches are delivery groups: every tell delivered in one go shares a toldtime
-    batch = bot.dbQuery(
-        """SELECT id, source, telltime, origintime, toldtime, remind, msg
-            FROM tell WHERE user=? AND delivered=1 AND toldtime=(
-                SELECT DISTINCT toldtime FROM tell
-                WHERE user=? AND delivered=1
-                ORDER BY toldtime DESC LIMIT 1 OFFSET ?);""",
-        (user, user, n - 1),
+    tells_to_replay = bot.dbQuery(
+        """WITH recent_batches AS (
+                SELECT toldtime FROM tell
+                WHERE user=? AND delivered=1 AND toldtime IS NOT NULL
+                GROUP BY toldtime ORDER BY toldtime DESC LIMIT ?
+            )
+            SELECT tell.id, tell.source, tell.telltime, tell.origintime,
+                tell.toldtime, tell.remind, tell.msg
+            FROM tell JOIN recent_batches USING (toldtime)
+            WHERE tell.user=? AND tell.delivered=1
+            ORDER BY tell.toldtime DESC, tell.telltime, tell.id;""",
+        (user, n, user),
     )
-    if not batch:
-        return bot.say(
-            "No delivered tells found%s." % ("" if n == 1 else " that far back")
-        )
-    batch.sort(key=lambda row: (row["telltime"], row["id"]))
-    _render_tells(bot, event.nick, batch, batch[0]["toldtime"])
+    if not tells_to_replay:
+        return bot.say("No delivered tells found.")
+
+    batches: dict[int, list[sqlite3.Row]] = {}
+    for replayed_tell in tells_to_replay:
+        batches.setdefault(replayed_tell["toldtime"], []).append(replayed_tell)
+    for toldtime, batch in batches.items():
+        _render_tells(bot, event.nick, batch, toldtime)
 
 
 def tell(event: Event, bot: BotLike) -> None:

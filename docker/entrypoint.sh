@@ -28,6 +28,11 @@ if [ "${PYBB_SELF_UPDATE_ON_START:-1}" = "1" ] && [ -d .git ]; then
     fi
 fi
 
+# Named and bind-mounted volumes hide the directory baked into the image.
+# Keep the versioned static paste assets present in both new and existing
+# volumes, including assets updated by the runtime git fast-forward above.
+cp -R docker/paste-assets/. shared/pastes/
+
 if [ ! -f "$CONFIG" ]; then
     echo "entrypoint: no config at ${CONFIG}, writing a starter config"
     python pyBurlyBot.py -c "$CONFIG"

@@ -25,6 +25,17 @@ services:
       retries: 4
       start_period: 90s
 
+  paste-cleanup:
+    image: ghcr.io/clammet/pyburlybot:latest
+    build: .
+    restart: unless-stopped
+    environment:
+      PYBB_PASTE_RETENTION_DAYS: "365"
+      PYBB_PASTE_CLEANUP_INTERVAL_SECONDS: "86400"
+    volumes:
+      - pyburlybot_pastes:/app/shared/pastes
+    entrypoint: ["/usr/bin/tini", "--", "python", "docker/paste_cleanup.py"]
+
 volumes:
   pyburlybot_data:
     name: pyburlybot_data

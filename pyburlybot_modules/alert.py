@@ -146,7 +146,15 @@ def deliver_alerts(
     if collate and lines is not None:
         msg = "Alerts for (%s): %%s" % receiving_user
         title = "Alerts for (%s)" % receiving_user
-        pastehelper(bot, msg, items=lines, altmsg="%s", force=True, title=title)
+        pastehelper(
+            bot,
+            msg,
+            items=lines,
+            altmsg="%s",
+            force=True,
+            target=chan_or_user,
+            title=title,
+        )
 
 
 def alert(event: Event, bot: BotLike) -> None:

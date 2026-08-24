@@ -106,12 +106,19 @@ The pattern, one volume per dataset:
 
 ```
 /app/shared/
-└── pastes/          # selfpaste wwwroot — mounted ro by the reverse proxy
+└── pastes/              # selfpaste wwwroot — mounted ro by the reverse proxy
+    └── style/           # versioned CSS used by HTML pastes
+        ├── style.css
+        ├── style-dark.css
+        └── style-light.css
 ```
 
 - The image pre-creates `/app/shared/<name>` owned by UID 10002, so a fresh
   named volume mounted there inherits that ownership and the bot can write
   into it. **Add a `mkdir`/`chown` for any new dataset in the Dockerfile.**
+- Paste CSS is baked into that seed directory and refreshed from
+  `docker/paste-assets/` whenever the bot container starts. This also installs
+  new or updated assets into an existing named or bind-mounted paste volume.
 - The bot mounts it read-write; every consumer mounts the *same* volume
   read-only. Never hand out `/app/state` instead — it is `0700` and contains
   secrets.
@@ -153,6 +160,12 @@ location /paste/ {
 and `"selfpaste": {"url_prefix": "https://example.test/paste/"}` in the
 config. Bring the bot up first so the volume exists before the proxy
 references it as `external`.
+
+The Compose stack also runs a `paste-cleanup` service. It checks the shared
+volume once per day and removes immutable `.txt` and `.html` paste files whose
+modification time is more than 365 days old. The CSS and other ancillary files
+are not candidates for deletion. Override `PYBB_PASTE_RETENTION_DAYS` or
+`PYBB_PASTE_CLEANUP_INTERVAL_SECONDS` on that service to change the defaults.
 
 To share a new dataset later: add `mkdir -p /app/shared/<name>` to the
 Dockerfile, a `pyburlybot_<name>` volume in both compose files, and point the

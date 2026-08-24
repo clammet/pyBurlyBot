@@ -39,12 +39,17 @@ RUN chown burlybot:burlybot /app \
     && mkdir -p /app/state /app/shared/pastes \
     && chown -R burlybot:burlybot /app/state /app/shared
 
+# Seed new paste volumes with the static assets referenced by HTML pastes.
+# The entrypoint also refreshes these files so existing volumes receive image
+# updates (Docker only copies image contents into a volume when it is empty).
+COPY --chown=burlybot:burlybot docker/paste-assets/ /app/shared/pastes/
+
 USER burlybot
 
 # All private persistent state (config, sqlite DBs) lives here.
 VOLUME /app/state
 # /app/shared/<name>: data another container reads (e.g. pastes served by the
 # reverse proxy). One volume per dataset, mounted here rw and elsewhere ro.
-# Pre-created + chowned above so a fresh named volume inherits UID 1000.
+# Pre-created + chowned above so a fresh named volume inherits UID 10002.
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/docker/entrypoint.sh"]

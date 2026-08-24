@@ -67,17 +67,25 @@ class TellsTest(TestCase):
         self.assertEqual(len(self.bot.said), 1)
         self.assertIn("tell three", self.bot.said[0])
 
-    def test_numeric_argument_selects_older_batches(self) -> None:
+    def test_numeric_argument_repeats_that_many_recent_batches(self) -> None:
         for argument in ("2", "-2"):
             self.bot.said.clear()
             tells(_event(argument), cast(BotLike, self.bot))
-            self.assertEqual(len(self.bot.said), 2)
-            self.assertIn("tell one", self.bot.said[0])
-            self.assertIn("tell two", self.bot.said[1])
+            self.assertEqual(len(self.bot.said), 3)
+            self.assertIn("tell three", self.bot.said[0])
+            self.assertIn("tell one", self.bot.said[1])
+            self.assertIn("tell two", self.bot.said[2])
 
-    def test_out_of_range_batch_reports_nothing_found(self) -> None:
+    def test_request_beyond_history_repeats_every_available_batch(self) -> None:
         tells(_event("9"), cast(BotLike, self.bot))
-        self.assertEqual(self.bot.said, ["No delivered tells found that far back."])
+        self.assertEqual(len(self.bot.said), 3)
+
+    def test_request_is_limited_to_ten_batches(self) -> None:
+        tells(_event("11"), cast(BotLike, self.bot))
+        self.assertEqual(
+            self.bot.said,
+            ["Can only replay up to 10 tell batches at once."],
+        )
 
     def test_undelivered_tells_are_not_replayed(self) -> None:
         for argument in (None, "2", "3"):

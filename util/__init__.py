@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from functools import partial
 from logging import getLogger
 from typing import Any
 from re import compile as recompile, IGNORECASE, VERBOSE
@@ -62,34 +63,43 @@ def pastehelper(
     altmsg: str | None = None,
     sep: tuple[str, str] = (", ", "\n"),
     force: bool = False,
+    target: str | None = None,
     **kwargs: Any,
 ) -> None:
-    """If using items, altmsg is an alternate string to interpolate with the items list."""
+    """If using items, altmsg is an alternate string to interpolate with the items list.
+
+    ``target`` supplies the destination for callers that run outside an IRC
+    event and therefore have a plain Container without ``bot.say()``.
+    """
+    say = bot.say if target is None else partial(bot.sendmsg, target)
     try:
         tmsg = basemsg
         if not force:
             if items is not None:
                 tmsg = basemsg % sep[0].join(items)
-            if bot.checkSay(tmsg):
-                return bot.say(tmsg)
+            check_say = (
+                bot.checkSay if target is None else partial(bot.checkSendMsg, target)
+            )
+            if check_say(tmsg):
+                return say(tmsg)
         # guard only the addon lookup, so a genuine AttributeError raised
         # inside the paste addon (or say) is not misreported as "no addon"
         try:
             paste = bot.getAddon("paste")
         except AttributeError:
             if items is not None:
-                bot.say(basemsg % "Error: too many entries to list and no paste addon.")
+                say(basemsg % "Error: too many entries to list and no paste addon.")
             else:
-                bot.say(basemsg % "Error: too much data and no paste addon.")
+                say(basemsg % "Error: too much data and no paste addon.")
             return
         if items is not None:
             url = paste((altmsg or basemsg) % sep[1].join(items), bot=bot, **kwargs)
         else:
             url = paste(basemsg, bot=bot, **kwargs)
         if url:
-            bot.say(basemsg % url)
+            say(basemsg % url)
         else:
-            bot.say(basemsg % "Error: paste addon failure.")
+            say(basemsg % "Error: paste addon failure.")
     except Exception:
         # make sure contents of paste is at least dumped somewhere for recovery if need be.
         if items is not None:
