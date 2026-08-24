@@ -18,6 +18,7 @@ class _FakeBot:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
         self.said: list[str] = []
+        self.pasted: list[str] = []
 
     def dbQuery(
         self, statement: str, params: tuple = (), function: object = None
@@ -27,6 +28,16 @@ class _FakeBot:
 
     def getModule(self, name: str) -> Any:
         return _FakeUsers
+
+    def getAddon(self, name: str) -> Any:
+        if name != "paste":
+            raise AttributeError(name)
+
+        def paste(content: str, **kwargs: Any) -> str:
+            self.pasted.append(content)
+            return "https://paste.example/tells"
+
+        return paste
 
     def say(self, msg: str, **kwargs: Any) -> None:
         strins = kwargs.get("strins")
@@ -79,6 +90,23 @@ class TellsTest(TestCase):
     def test_request_beyond_history_repeats_every_available_batch(self) -> None:
         tells(_event("9"), cast(BotLike, self.bot))
         self.assertEqual(len(self.bot.said), 3)
+
+    def test_combined_replay_over_inline_limit_uses_one_paste(self) -> None:
+        self.bot.connection.execute(
+            """INSERT INTO tell(
+                delivered, user, telltime, toldtime, source, msg
+            ) VALUES (1, 'alice', 400, 500, 'bob', 'tell four');"""
+        )
+
+        tells(_event("3"), cast(BotLike, self.bot))
+
+        self.assertEqual(
+            self.bot.said,
+            ["Tells/reminds for (alice): https://paste.example/tells"],
+        )
+        self.assertEqual(len(self.bot.pasted), 1)
+        for message in ("tell one", "tell two", "tell three", "tell four"):
+            self.assertIn(message, self.bot.pasted[0])
 
     def test_request_is_limited_to_ten_batches(self) -> None:
         tells(_event("11"), cast(BotLike, self.bot))

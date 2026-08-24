@@ -1,4 +1,5 @@
 import sqlite3
+from typing import Any
 from util.event import Event
 from util.types import BotLike
 from util.db import Query
@@ -40,53 +41,55 @@ SELFREMINDFORMAT = "{0}, reminder: {1} - set {2}, arrived {3}."
 
 MAX_REMIND_TIME = 157700000  # 5 year
 MAX_REPLAY_BATCHES = 10
+MAX_INLINE_TELLS = 3
+
+
+def _tell_response(
+    nick: str | None, tell: sqlite3.Row, toldtime: int
+) -> tuple[str, list[Any]]:
+    if tell["remind"]:
+        source = tell["source"]
+        if source:
+            return REMINDFORMAT, [
+                nick,
+                source,
+                tell["msg"],
+                distance_of_time_in_words(tell["origintime"], toldtime),
+                distance_of_time_in_words(tell["telltime"], toldtime, suffix="late"),
+            ]
+        return SELFREMINDFORMAT, [
+            nick,
+            tell["msg"],
+            distance_of_time_in_words(tell["origintime"], toldtime),
+            distance_of_time_in_words(tell["telltime"], toldtime, suffix="late"),
+        ]
+    return TELLFORMAT, [
+        nick,
+        tell["source"],
+        tell["msg"],
+        distance_of_time_in_words(tell["telltime"], toldtime),
+    ]
+
+
+def _paste_tells(bot: BotLike, nick: str | None, lines: list[str]) -> None:
+    msg = "Tells/reminds for (%s): %%s" % nick
+    title = "Tells/reminds for (%s)" % nick
+    pastehelper(bot, msg, items=lines, altmsg="%s", force=True, title=title)
 
 
 def _render_tells(
     bot: BotLike, nick: str | None, tells: list[sqlite3.Row], toldtime: int
 ) -> None:
-    collate = len(tells) > 3
+    collate = len(tells) > MAX_INLINE_TELLS
     lines: list[str] = []
     for tell in tells:
-        if tell["remind"]:
-            source = tell["source"]
-            if source:
-                data = [
-                    nick,
-                    source,
-                    tell["msg"],
-                    distance_of_time_in_words(tell["origintime"], toldtime),
-                    distance_of_time_in_words(
-                        tell["telltime"], toldtime, suffix="late"
-                    ),
-                ]
-                fmt = REMINDFORMAT
-            else:
-                data = [
-                    nick,
-                    tell["msg"],
-                    distance_of_time_in_words(tell["origintime"], toldtime),
-                    distance_of_time_in_words(
-                        tell["telltime"], toldtime, suffix="late"
-                    ),
-                ]
-                fmt = SELFREMINDFORMAT
-        else:
-            data = [
-                nick,
-                tell["source"],
-                tell["msg"],
-                distance_of_time_in_words(tell["telltime"], toldtime),
-            ]
-            fmt = TELLFORMAT
+        fmt, data = _tell_response(nick, tell, toldtime)
         if collate:
             lines.append(fmt.format(*data))
         else:
             bot.say(fmt, strins=data, fcfs=True)
     if collate:
-        msg = "Tells/reminds for (%s): %%s" % nick
-        title = "Tells/reminds for (%s)" % nick
-        pastehelper(bot, msg, items=lines, altmsg="%s", force=True, title=title)
+        _paste_tells(bot, nick, lines)
 
 
 def deliver_tell(event: Event, bot: BotLike) -> None:
@@ -141,6 +144,15 @@ def tells(event: Event, bot: BotLike) -> None:
     )
     if not tells_to_replay:
         return bot.say("No delivered tells found.")
+
+    if len(tells_to_replay) > MAX_INLINE_TELLS:
+        lines = []
+        for replayed_tell in tells_to_replay:
+            fmt, data = _tell_response(
+                event.nick, replayed_tell, replayed_tell["toldtime"]
+            )
+            lines.append(fmt.format(*data))
+        return _paste_tells(bot, event.nick, lines)
 
     batches: dict[int, list[sqlite3.Row]] = {}
     for replayed_tell in tells_to_replay:
