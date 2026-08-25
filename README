@@ -1,5 +1,10 @@
 This is internet IRC bot pyBurlyBot
 
+Handy
+-----
+`sudo docker logs --tail 200 --timestamps pyburlybot`
+
+
 External word services
 ----------------------
 

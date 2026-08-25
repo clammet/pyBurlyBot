@@ -90,8 +90,11 @@ class Event:
 
     def __getattr__(self, name: str) -> Any:
         # only called when normal attribute lookup fails; fall back to kwargs
+        # Access __dict__ directly because copy() may probe a newly allocated
+        # Event before its attributes (including kwargs) have been restored.
+        kwargs = object.__getattribute__(self, "__dict__").get("kwargs", {})
         try:
-            return self.kwargs[name]
+            return kwargs[name]
         except KeyError:
             raise AttributeError(name) from None
 
