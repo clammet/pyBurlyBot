@@ -10,10 +10,10 @@ h3  {
  
 p   {
         color: #899BB8;
-        letter-spacing: -0.3px;
+        letter-spacing: -0.7pt;
         font-family: "Oxygen Mono", "Andale Mono", monospace;
-        font-size: 17px;
-        line-height: 19px;
+        font-size: 12pt;
+        line-height: 14pt;
         background: rgba(66, 87, 105, 0.03);
         border-radius: 5px;
         padding: 4px;
@@ -45,10 +45,10 @@ h3  {
 
 p   {
         color: rgba(66, 87, 105, 0.9);
-        letter-spacing: -0.3px;
+        letter-spacing: -0.7pt;
         font-family: "Oxygen Mono", "Andale Mono", monospace;
-        font-size: 17px;
-        line-height: 19px;
+        font-size: 12pt;
+        line-height: 14pt;
         background: rgba(66, 87, 105, 0.03);
         border-radius: 5px;
         padding: 4px;
