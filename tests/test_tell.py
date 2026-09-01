@@ -2,6 +2,7 @@ import sqlite3
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest import TestCase
+from unittest.mock import patch
 
 from pyburlybot_modules.tell import tells
 from util.event import Event
@@ -74,18 +75,24 @@ class TellsTest(TestCase):
         self.bot = _FakeBot(connection)
 
     def test_repeats_the_most_recent_delivered_batch(self) -> None:
-        tells(_event(), cast(BotLike, self.bot))
-        self.assertEqual(len(self.bot.said), 1)
-        self.assertIn("tell three", self.bot.said[0])
+        # Patch the function's globals so this remains reliable if another test
+        # reloads the tell module after this test module was imported.
+        with patch.dict(tells.__globals__, {"timegm": lambda _: 2100}):
+            tells(_event(), cast(BotLike, self.bot))
+
+        self.assertEqual(
+            self.bot.said,
+            ["alice: <bob> tell three - 3 minutes and 20 seconds ago"],
+        )
 
     def test_numeric_argument_repeats_that_many_recent_batches(self) -> None:
         for argument in ("2", "-2"):
             self.bot.said.clear()
             tells(_event(argument), cast(BotLike, self.bot))
             self.assertEqual(len(self.bot.said), 3)
-            self.assertIn("tell three", self.bot.said[0])
-            self.assertIn("tell one", self.bot.said[1])
-            self.assertIn("tell two", self.bot.said[2])
+            self.assertIn("alice: [1] <bob> tell three", self.bot.said[0])
+            self.assertIn("alice: [2] <bob> tell one", self.bot.said[1])
+            self.assertIn("alice: [2] <bob> tell two", self.bot.said[2])
 
     def test_request_beyond_history_repeats_every_available_batch(self) -> None:
         tells(_event("9"), cast(BotLike, self.bot))
@@ -107,6 +114,9 @@ class TellsTest(TestCase):
         self.assertEqual(len(self.bot.pasted), 1)
         for message in ("tell one", "tell two", "tell three", "tell four"):
             self.assertIn(message, self.bot.pasted[0])
+        self.assertEqual(self.bot.pasted[0].count("[1]"), 1)
+        self.assertEqual(self.bot.pasted[0].count("[2]"), 2)
+        self.assertEqual(self.bot.pasted[0].count("[3]"), 1)
 
     def test_request_is_limited_to_ten_batches(self) -> None:
         tells(_event("11"), cast(BotLike, self.bot))

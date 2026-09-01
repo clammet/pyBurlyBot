@@ -24,8 +24,8 @@ from pyburlybot_modules.remind_common import (
 
 REQUIRES = ("users",)
 
-# nick: <source> msg - time
-TELLFORMAT = "{0}: <{1}> {2} - {3}"
+# nick: [batch] <source> msg - time
+TELLFORMAT = "{0}: {1}<{2}> {3} - {4}"
 # nick: I'll pass that on when target is around.
 RPLFORMAT = "%s: I'll %s when %s %s around.%s%s%s"
 PASSON = "pass that on"
@@ -36,8 +36,8 @@ MULTIUSER = " %s someone once is enough."
 # nick: I will remind target about that in timespec.
 RPLREMINDFORMAT = "%s: I will remind %s about that %s.%s%s"
 # TARGET, reminder from SOURCE: MSG - set TELLTIME, arrived TOLDTIME.
-REMINDFORMAT = "{0}, reminder from {1}: {2} - set {3}, arrived {4}."
-SELFREMINDFORMAT = "{0}, reminder: {1} - set {2}, arrived {3}."
+REMINDFORMAT = "{0}, {1}reminder from {2}: {3} - set {4}, arrived {5}."
+SELFREMINDFORMAT = "{0}, {1}reminder: {2} - set {3}, arrived {4}."
 
 MAX_REMIND_TIME = 157700000  # 5 year
 MAX_REPLAY_BATCHES = 10
@@ -45,29 +45,36 @@ MAX_INLINE_TELLS = 3
 
 
 def _tell_response(
-    nick: str | None, tell: sqlite3.Row, toldtime: int
+    nick: str | None,
+    tell: sqlite3.Row,
+    current_time: int,
+    toldtime: int,
+    batch_prefix: str = "",
 ) -> tuple[str, list[Any]]:
     if tell["remind"]:
         source = tell["source"]
         if source:
             return REMINDFORMAT, [
                 nick,
+                batch_prefix,
                 source,
                 tell["msg"],
-                distance_of_time_in_words(tell["origintime"], toldtime),
+                distance_of_time_in_words(tell["origintime"], current_time),
                 distance_of_time_in_words(tell["telltime"], toldtime, suffix="late"),
             ]
         return SELFREMINDFORMAT, [
             nick,
+            batch_prefix,
             tell["msg"],
-            distance_of_time_in_words(tell["origintime"], toldtime),
+            distance_of_time_in_words(tell["origintime"], current_time),
             distance_of_time_in_words(tell["telltime"], toldtime, suffix="late"),
         ]
     return TELLFORMAT, [
         nick,
+        batch_prefix,
         tell["source"],
         tell["msg"],
-        distance_of_time_in_words(tell["telltime"], toldtime),
+        distance_of_time_in_words(tell["telltime"], current_time),
     ]
 
 
@@ -78,12 +85,17 @@ def _paste_tells(bot: BotLike, nick: str | None, lines: list[str]) -> None:
 
 
 def _render_tells(
-    bot: BotLike, nick: str | None, tells: list[sqlite3.Row], toldtime: int
+    bot: BotLike,
+    nick: str | None,
+    tells: list[sqlite3.Row],
+    current_time: int,
+    toldtime: int,
+    prefix: str = "",
 ) -> None:
     collate = len(tells) > MAX_INLINE_TELLS
     lines: list[str] = []
     for tell in tells:
-        fmt, data = _tell_response(nick, tell, toldtime)
+        fmt, data = _tell_response(nick, tell, current_time, toldtime, prefix)
         if collate:
             lines.append(fmt.format(*data))
         else:
@@ -110,7 +122,7 @@ def deliver_tell(event: Event, bot: BotLike) -> None:
     )
     tells.sort(key=lambda row: (row["telltime"], row["id"]))
     if tells:
-        _render_tells(bot, event.nick, tells, toldtime)
+        _render_tells(bot, event.nick, tells, toldtime, toldtime)
 
 
 def tells(event: Event, bot: BotLike) -> None:
@@ -145,20 +157,33 @@ def tells(event: Event, bot: BotLike) -> None:
     if not tells_to_replay:
         return bot.say("No delivered tells found.")
 
-    if len(tells_to_replay) > MAX_INLINE_TELLS:
-        lines = []
-        for replayed_tell in tells_to_replay:
-            fmt, data = _tell_response(
-                event.nick, replayed_tell, replayed_tell["toldtime"]
-            )
-            lines.append(fmt.format(*data))
-        return _paste_tells(bot, event.nick, lines)
-
     batches: dict[int, list[sqlite3.Row]] = {}
     for replayed_tell in tells_to_replay:
         batches.setdefault(replayed_tell["toldtime"], []).append(replayed_tell)
-    for toldtime, batch in batches.items():
-        _render_tells(bot, event.nick, batch, toldtime)
+
+    replay_time = int(timegm(gmtime()))
+    multiple_batches = len(batches) > 1
+    rendered_batches = [
+        (
+            toldtime,
+            batch,
+            "[%d] " % batch_number if multiple_batches else "",
+        )
+        for batch_number, (toldtime, batch) in enumerate(batches.items(), start=1)
+    ]
+
+    if len(tells_to_replay) > MAX_INLINE_TELLS:
+        lines = []
+        for toldtime, batch, prefix in rendered_batches:
+            for replayed_tell in batch:
+                fmt, data = _tell_response(
+                    event.nick, replayed_tell, replay_time, toldtime, prefix
+                )
+                lines.append(fmt.format(*data))
+        return _paste_tells(bot, event.nick, lines)
+
+    for toldtime, batch, prefix in rendered_batches:
+        _render_tells(bot, event.nick, batch, replay_time, toldtime, prefix)
 
 
 def tell(event: Event, bot: BotLike) -> None:
