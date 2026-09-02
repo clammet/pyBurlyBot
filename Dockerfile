@@ -2,7 +2,7 @@
 # Pinned by digest; Renovate PRs tag/digest bumps and CI proves them. Rebuilds
 # stay deliberate (the bot self-updates in-process), so a merged bump reaches a
 # host only when someone chooses to rebuild and redeploy the image.
-FROM python:3.14-slim@sha256:656d12e70054d5fda18a045e2494c96701e9792dd1445f95b3d038df954f57e9
+FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 
 # git: the bot self-updates its own checkout at runtime (updaterelaunch module).
 # tini: PID 1 reaper so no module that forks children can leave zombies.
