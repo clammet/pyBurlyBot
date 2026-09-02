@@ -6,7 +6,8 @@ from util.types import BotLike
 # "update" event (normally POST <path_prefix>update from the webhook module,
 # e.g. a GitHub push webhook). There is deliberately no polling timer.
 
-from subprocess import CalledProcessError, check_output
+from collections import deque
+from subprocess import STDOUT, CalledProcessError, check_output
 from sys import executable
 from threading import Event as ThreadEvent
 from threading import Lock
@@ -54,7 +55,20 @@ _update_lock = Lock()
 # the next !update (or event-triggered check with auto_restart enabled) applies it
 _restart_pending = ThreadEvent()
 
-_NON_RUNTIME_PYTHON_PREFIXES = ("tests/",)
+# a broadcast "update" event is delivered once per server; remember handled
+# event_ids so each post schedules only one check (see reload.py)
+_seen_lock = Lock()
+_seen_events: deque[str] = deque(maxlen=64)
+
+# python files that never run inside the bot process: changing them must not
+# force a restart (matched with str.startswith, so bare names are prefixes)
+_NON_RUNTIME_PYTHON_PREFIXES = (
+    "tests/",
+    "docs/",
+    "docker/",
+    "microirc",
+    "dbexport.py",
+)
 
 
 class _Pending:
@@ -88,18 +102,31 @@ def _classify_changes(changes: str) -> dict[str, bool]:
 
 
 def _check_and_apply(gitpath: str, branch: str) -> dict[str, bool]:
-    """Fetch and merge origin/<branch>, classifying what changed."""
-    check_output([gitpath, "fetch"], text=True, timeout=GIT_TIMEOUT)
-    changes = check_output(
-        [gitpath, "diff", "--name-status", branch, "origin/%s" % branch],
+    """Fetch and fast-forward to origin/<branch>, classifying what changed."""
+    check_output(
+        [gitpath, "fetch", "origin", branch],
         text=True,
+        stderr=STDOUT,
+        timeout=GIT_TIMEOUT,
+    )
+    # diff from HEAD (not the local branch name) so the classification always
+    # describes exactly what the merge below applies, even on a detached HEAD
+    changes = check_output(
+        [gitpath, "diff", "--name-status", "HEAD", "origin/%s" % branch],
+        text=True,
+        stderr=STDOUT,
         timeout=GIT_TIMEOUT,
     )
     result = _classify_changes(changes)
     if result["any"]:
         print("UPDATERELAUNCH CHANGES:\n%s" % changes)
+        # --ff-only matches docker/entrypoint.sh: a diverged or dirty checkout
+        # fails here instead of wedging on a conflicted merge
         check_output(
-            [gitpath, "merge", "origin/%s" % branch], text=True, timeout=GIT_TIMEOUT
+            [gitpath, "merge", "--ff-only", "origin/%s" % branch],
+            text=True,
+            stderr=STDOUT,
+            timeout=GIT_TIMEOUT,
         )
         if result["deps"]:
             print("UPDATERELAUNCH: requirements.txt changed, installing dependencies")
@@ -126,6 +153,23 @@ def _restart() -> None:
     call_in_reactor(Settings.shutdown, True)
 
 
+def _describe_failure(e: Exception) -> str:
+    """One line for an update failure, including git/pip output when captured."""
+    output = getattr(e, "output", None)
+    if output:
+        return "%s :: %s" % (e, " ".join(str(output).split()))
+    return str(e)
+
+
+def _notify_admins(bot: BotLike, msg: str) -> None:
+    """Best-effort PRIVMSG to each admin so unattended failures reach IRC."""
+    try:
+        for admin in bot.getOption("admins") or ():
+            bot.sendmsg(admin, msg)
+    except Exception as e:  # noqa: BLE001 - notification must never mask the failure
+        print("UPDATERELAUNCH: could not notify admins: %s" % e)
+
+
 def update(event: Event, bot: BotLike) -> None:
     """update will check for git update, hot-reload modules or restart bot as needed."""
     gitpath = bot.getOption("git_path", module="updaterelaunch") or "git"
@@ -136,7 +180,7 @@ def update(event: Event, bot: BotLike) -> None:
     try:
         result = _check_and_apply(gitpath, branch)
     except (CalledProcessError, OSError) as e:
-        return bot.say("Update failed: %s" % e)
+        return bot.say("Update failed: %s" % _describe_failure(e))
     finally:
         _update_lock.release()
 
@@ -148,6 +192,11 @@ def update(event: Event, bot: BotLike) -> None:
         call_in_reactor(_reload_all)
         # may never get sent if bot is disconnecting from this server after reload
         bot.say("Module update merged, modules reloaded.")
+    elif result["any"]:
+        bot.say(
+            "Update merged; no runtime code changed "
+            "(applies at the next restart or image rebuild)."
+        )
     else:
         bot.say("Already up-to date.")
 
@@ -175,25 +224,36 @@ def _event_update_check(bot: BotLike) -> None:
         try:
             result = _check_and_apply(gitpath, branch)
         except Exception as e:  # noqa: BLE001 - network/git failures: wait for the next trigger
-            print("UPDATERELAUNCH: update check failed: %s" % e)
+            detail = _describe_failure(e)
+            print("UPDATERELAUNCH: update check failed: %s" % detail)
+            _notify_admins(bot, "Unattended update failed: %s" % detail)
             return
 
-    if result["core"] or result["deps"] or _restart_pending.is_set():
-        if bot.getOption("auto_restart", module="updaterelaunch"):
-            print("UPDATERELAUNCH: core update merged, restarting.")
-            _restart_pending.clear()
-            _restart()
-        else:
-            _restart_pending.set()
-            print(
-                "UPDATERELAUNCH: core update merged; restart required but "
-                "auto_restart is disabled. Use update command or restart manually."
-            )
-    elif result["modules"]:
+    needs_restart = result["core"] or result["deps"] or _restart_pending.is_set()
+    if needs_restart and bot.getOption("auto_restart", module="updaterelaunch"):
+        print("UPDATERELAUNCH: core update merged, restarting.")
+        _restart_pending.clear()
+        _restart()
+        return
+    if needs_restart:
+        _restart_pending.set()
+        print(
+            "UPDATERELAUNCH: core update merged; restart required but "
+            "auto_restart is disabled. Use update command or restart manually."
+        )
+    # a pending restart must not starve module hot-reloads: with auto_restart
+    # disabled, module changes still apply while the restart waits for !update
+    if result["modules"]:
         print("UPDATERELAUNCH: module update merged, hot-reloading modules.")
         call_in_reactor(_reload_all)
-    else:
-        print("UPDATERELAUNCH: already up to date.")
+    elif not needs_restart:
+        if result["any"]:
+            print(
+                "UPDATERELAUNCH: update merged; no runtime code changed "
+                "(applies at the next restart or image rebuild)."
+            )
+        else:
+            print("UPDATERELAUNCH: already up to date.")
 
 
 def _fire_pending() -> None:
@@ -245,6 +305,12 @@ def update_event(event: Event, bot: BotLike) -> None:
     if not event.authorized:
         print("UPDATERELAUNCH: ignoring unauthorized update event from %s" % source)
         return
+    event_id = getattr(event, "event_id", None)
+    if event_id is not None:
+        with _seen_lock:
+            if event_id in _seen_events:
+                return
+            _seen_events.append(event_id)
     branch = bot.getOption("git_branch", module="updaterelaunch") or "main"
     if not _github_push_for_branch(event, branch):
         return

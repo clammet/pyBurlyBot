@@ -472,13 +472,18 @@ class UpdateEventTest(TestCase):
     def setUp(self) -> None:
         updaterelaunch._Pending.call = None
         updaterelaunch._Pending.bot = None
+        updaterelaunch._seen_events.clear()
+        updaterelaunch._restart_pending.clear()
+        self.addCleanup(updaterelaunch._restart_pending.clear)
         self.bot = Mock()
-        self.bot.getOption.side_effect = lambda name, **kw: {
+        self.options = {
             "git_branch": "main",
             "update_debounce": 30,
             "auto_restart": True,
             "git_path": "git",
-        }[name]
+            "admins": ["clam"],
+        }
+        self.bot.getOption.side_effect = lambda name, **kw: self.options[name]
         self.reactor = Mock()
         patcher = patch.object(updaterelaunch, "reactor", self.reactor)
         patcher.start()
@@ -620,7 +625,7 @@ class UpdateEventTest(TestCase):
             updaterelaunch._event_update_check(self.bot)
         restart.assert_called_once_with()
 
-    def test_event_check_failure_is_logged_not_raised(self) -> None:
+    def test_event_check_failure_is_logged_and_reported_to_admins(self) -> None:
         with (
             patch.object(
                 updaterelaunch, "_check_and_apply", side_effect=OSError("no git")
@@ -630,3 +635,66 @@ class UpdateEventTest(TestCase):
             updaterelaunch._event_update_check(self.bot)
         self.assertIn("update check failed", printed.call_args.args[0])
         self.assertFalse(updaterelaunch._update_lock.locked())
+        self.bot.sendmsg.assert_called_once_with(
+            "clam", "Unattended update failed: no git"
+        )
+
+    def test_broadcast_copies_schedule_a_single_check_per_event_id(self) -> None:
+        with patch("builtins.print"):
+            for _ in range(3):  # same post delivered once per server
+                updaterelaunch.update_event(self._event(event_id="abc"), self.bot)
+        self.reactor.callLater.assert_called_once()
+
+    def test_non_runtime_python_changes_do_not_classify_as_core(self) -> None:
+        changes = "\n".join(
+            (
+                "M\tdocs/examples/modules/samplemodule.py",
+                "M\tdocker/healthcheck.py",
+                "M\tmicroirc_server.py",
+                "M\tdbexport.py",
+            )
+        )
+        self.assertEqual(
+            updaterelaunch._classify_changes(changes),
+            {"core": False, "modules": False, "deps": False, "any": True},
+        )
+
+    def test_pending_restart_does_not_starve_module_reloads(self) -> None:
+        self.options["auto_restart"] = False
+        updaterelaunch._restart_pending.set()
+        with (
+            patch.object(
+                updaterelaunch,
+                "_check_and_apply",
+                return_value={
+                    "core": False,
+                    "modules": True,
+                    "deps": False,
+                    "any": True,
+                },
+            ),
+            patch.object(updaterelaunch, "call_in_reactor") as call,
+            patch.object(updaterelaunch, "_restart") as restart,
+            patch("builtins.print"),
+        ):
+            updaterelaunch._event_update_check(self.bot)
+        call.assert_called_once_with(updaterelaunch._reload_all)
+        restart.assert_not_called()
+        self.assertTrue(updaterelaunch._restart_pending.is_set())
+
+    def test_merged_non_runtime_change_is_not_reported_as_up_to_date(self) -> None:
+        with (
+            patch.object(
+                updaterelaunch,
+                "_check_and_apply",
+                return_value={
+                    "core": False,
+                    "modules": False,
+                    "deps": False,
+                    "any": True,
+                },
+            ),
+            patch("builtins.print") as printed,
+        ):
+            updaterelaunch._event_update_check(self.bot)
+        self.assertIn("no runtime code changed", printed.call_args.args[0])

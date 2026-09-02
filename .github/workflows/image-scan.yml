@@ -2,9 +2,9 @@ name: Image CVE scan
 
 on:
   schedule:
-    # Weekly scan of the published image: catches CVEs disclosed in already
+    # Daily scan of the published image: catches CVEs disclosed in already
     # merged (OS packages especially) dependencies between Renovate merges.
-    - cron: "43 5 * * 1"
+    - cron: "43 5 * * *"
   workflow_dispatch:
 
 permissions:
