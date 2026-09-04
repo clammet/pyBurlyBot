@@ -88,3 +88,53 @@ Renovate reads the alerts through its app token and raises the fix PRs
 CVEs disclosed between merges. The image build also calls it after publishing,
 using the exact image digest so a later build cannot change the scan target.
 The scan is a post-publication notification, not a deployment or PR merge gate.
+
+### Ignoring a reviewed finding
+
+Edit `.trivyignore.yaml` in the repository root. The scan workflow checks out
+this file and applies it before generating the JSON report, SARIF upload, and
+HIGH/CRITICAL failure check. Ignored findings therefore do not fail the job.
+GitHub's **Dismiss alert** button only changes the portal's alert state; it
+does not tell Trivy to ignore a finding.
+
+For a table row such as `setuptools | CVE-2025-47273`, also read the
+**Installed Version** column. For version `70.3.0`, add an entry like this
+under the existing `vulnerabilities:` list (this example is already present):
+
+```yaml
+  - id: CVE-2025-47273
+    purls:
+      - pkg:pypi/setuptools@70.3.0
+    statement: >-
+      pip vendors only pkg_resources from setuptools. The vulnerable
+      setuptools.package_index.PackageIndex code is absent from the image.
+```
+
+- `id`: copy the exact CVE or GHSA identifier from the finding.
+- `purls`: identify the package and installed version. For Python packages,
+  use `pkg:pypi/NAME@VERSION`. Other ecosystems have different formats; copy
+  `PkgIdentifier.PURL` from a Trivy JSON report rather than guessing.
+- `statement`: record why this particular vulnerability does not apply, or
+  why its risk is accepted. The statement is documentation, not a filter.
+- Optional `expired_at: YYYY-MM-DD`: stop ignoring the finding on that date
+  so it is assessed again. Without this field the entry does not expire.
+
+Keep all entries under one `vulnerabilities:` key. An entry matches both the
+advisory and the package/version; it does not ignore future advisories for
+the whole package. Use the installed version, not the advisory's fixed
+version. See [Trivy's ignore-file reference](https://trivy.dev/docs/v0.74/guide/configuration/filtering/#trivyignoreyaml)
+for additional filters, including paths.
+
+Commit and merge the file change into `main`. The post-publication scan or
+the next daily scan will pick it up. To scan immediately after merging, use
+**Actions → Image CVE scan → Run workflow**, selecting `main`. Use a new run,
+not a rerun of an old run, which uses its original commit. To undo an
+exception, remove its list entry and merge that change.
+
+The initial three exceptions cover pip's bundled setuptools 70.3.0 and
+msgpack 1.1.2, investigated on September 4, 2026. The affected setuptools
+code and msgpack C extension were absent. Trivy reports these through an
+embedded inventory without package paths, so the rules also match a
+standalone installation of the same package/version. Reassess these entries
+if either package becomes an application dependency; they are not blanket
+claims that those packages are safe.

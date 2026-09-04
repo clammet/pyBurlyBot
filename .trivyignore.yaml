@@ -1,0 +1,31 @@
+# Reviewed exceptions for the image scan. Match an advisory AND the exact
+# package version; new advisories and other versions remain visible.
+# See docs/dependencies.md for the editing workflow.
+#
+# Reviewed 2026-09-04 against pip 26.2.1 in the published image.
+# Trivy's embedded-SBOM findings have no package path, so these rules cannot
+# distinguish pip's bundled copy from a standalone copy of the same version.
+# Reassess if setuptools or msgpack becomes an application dependency.
+# https://pip.pypa.io/en/stable/development/vendoring-policy/
+# https://github.com/aquasecurity/trivy/discussions/11031
+vulnerabilities:
+  - id: CVE-2025-47273
+    purls:
+      - pkg:pypi/setuptools@70.3.0
+    statement: >-
+      pip vendors only pkg_resources from setuptools. The vulnerable
+      setuptools.package_index.PackageIndex code is absent from the image.
+
+  - id: CVE-2026-59890
+    purls:
+      - pkg:pypi/setuptools@70.3.0
+    statement: >-
+      pip vendors only pkg_resources from setuptools. The affected
+      setuptools FileList and source-distribution exclusion code is absent.
+
+  - id: GHSA-6v7p-g79w-8964
+    purls:
+      - pkg:pypi/msgpack@1.1.2
+    statement: >-
+      pip ships msgpack's pure-Python fallback. The C extension affected by
+      the Unpacker reuse crash is absent from the image.
