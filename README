@@ -20,6 +20,49 @@ mandatory on 1 January 2027, but has not yet documented how issued keys are sent
 with requests. Request a key through its API feedback form before that date and
 update this module when Datamuse supplies the integration details.
 
+When schedules
+--------------
+
+Load `when` (which requires `whenapi`) to link a When schedule to an IRC
+channel. With `.` as the configured command prefix:
+
+- `.when ~link <URL>` validates and saves the channel's schedule link.
+- `.when` lists current and upcoming availability and includes the schedule
+  URL: `Alice (for 2h18m), Bob (in 1h12m for 3h0m)`.
+  `maybe`, unavailable, and blank cells are not counted as available.
+- `.when ~unlink` removes the channel's link.
+
+These commands are channel-only; anyone in the channel can link or unlink.
+Links persist in SQLite, separately for each network and channel. A failed
+link attempt preserves the existing link. Use your configured command prefix
+in place of `.` (the example configuration uses `!`).
+
+Set `moduleopts.when.lookahead_hours` to control how far ahead to look for
+availability starts (default `1.7`, range `0` to `168`; `0` shows only people
+available now). This option can also be scoped to a channel. Each person is
+listed once, with their current continuous period or the next one starting
+within the lookahead. Current durations are time remaining from now; future
+durations cover the entire period, including time beyond the lookahead.
+Times are displayed as `XhYm`, rounded to the nearest minute. Adjacent available cells
+are joined, but gaps and exceptions break the period. Duration calculation
+looks eight days past the lookahead; a period still continuing then is shown
+as `for at least XhYm` rather than claiming it ends there.
+
+The `whenapi` helper uses the existing public Convex `schedules:get` query:
+POST `/api/query` with `path: "schedules:get"`, `args: {scheduleId: "..."}`,
+and `format: "json"`. No credentials or When backend changes are required.
+Defaults are `site_url: https://when.nyanya.org` and
+`api_url: https://when-convex.nyanya.org`; override these under
+`moduleopts.whenapi` for another deployment. Only schedule links from the
+configured frontend origin are accepted.
+
+Availability uses each selection's timezone and the current date, including
+DST, linked saved availability, and per-participant date exceptions (including
+calendar conflicts already synced by When). Schedule date limits, disallowed
+slots, and blocked participants are respected. A locked or nominated time
+does not itself make a participant available. The bot reads a fresh schedule
+snapshot on each request; it does not trigger a calendar sync.
+
 API helper modules
 ------------------
 
@@ -227,4 +270,3 @@ python microirc.py LocalBot.json
 
 The bot and harness should use the same channel; their configured nicknames are
 already distinct because the harness appends `Test` by default.
-

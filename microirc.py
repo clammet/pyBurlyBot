@@ -130,6 +130,7 @@ TEST_COMMANDS: tuple[TestCommand, ...] = (
     TestCommand("users", "seen", "{nick}", multiline=True),
     TestCommand("weather", "weather", "{nick}"),
     TestCommand("weather", "forecast", "{nick}"),
+    TestCommand("when", "when"),
     TestCommand("wikipedia", "wiki", "pyBurlyBot"),
     TestCommand("words", "dict", "test"),
     TestCommand("words", "spell", "mispeling"),
