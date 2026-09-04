@@ -5,7 +5,7 @@
   extends: ['config:best-practices', 'customManagers:githubActionsVersions'],
   timezone: 'Australia/Sydney',
   labels: ['dependencies'],
-  // Self-hosted hourly runner; Renovate's own rate limits just add latency.
+  // Self-hosted six-hourly runner; Renovate's own rate limits add latency.
   prHourlyLimit: 0,
   prConcurrentLimit: 10,
   // Fleet-standard soak: let a release age before adopting it. Vulnerability

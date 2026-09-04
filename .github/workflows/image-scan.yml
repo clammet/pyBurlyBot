@@ -6,27 +6,52 @@ on:
     # merged (OS packages especially) dependencies between Renovate merges.
     - cron: "43 5 * * *"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      image-ref:
+        description: Published image digest to scan after a build
+        required: true
+        type: string
 
 permissions:
   contents: read
   security-events: write
 
+env:
+  # Track the engine separately from the action wrapper's default version.
+  # renovate: datasource=github-releases depName=aquasecurity/trivy
+  TRIVY_VERSION: v0.74.0
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      - name: Scan published image
+        id: scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ghcr.io/clammet/pyburlybot:latest
-          format: sarif
-          output: trivy.sarif
-          severity: CRITICAL,HIGH
+          image-ref: ${{ inputs.image-ref || 'ghcr.io/clammet/pyburlybot:latest' }}
+          version: ${{ env.TRIVY_VERSION }}
+          scanners: vuln
+          format: json
+          output: trivy.json
+          list-all-pkgs: true
           ignore-unfixed: true
-          # red run = notification; findings also land in the Security tab
-          exit-code: "1"
+          # Keep all severities for reporting; enforce the threshold separately.
+          exit-code: "0"
+
+      - name: Generate code-scanning report
+        id: sarif
+        run: trivy convert --format sarif --output trivy.sarif trivy.json
 
       - uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
-        if: always()
+        if: ${{ !cancelled() && steps.sarif.outcome == 'success' }}
         with:
           sarif_file: trivy.sarif
           category: trivy-image
+
+      - name: Report and fail on fixable HIGH or CRITICAL findings
+        if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
+        # Use the same scan for the log and exit status. The action wrapper
+        # unsets severity for SARIF by default, so it must not be the gate.
+        run: trivy convert --format table --severity HIGH,CRITICAL --exit-code 1 trivy.json

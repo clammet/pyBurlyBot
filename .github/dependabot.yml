@@ -1,5 +1,5 @@
 # Dependabot is deliberately alerts-only in this repo. Renovate (self-hosted,
-# hourly — .github/workflows/renovate.yml) owns every version bump; its GitHub
+# every six hours — .github/workflows/renovate.yml) owns every version bump; its GitHub
 # App reads the alerts Dependabot raises (Dependabot alerts: read permission)
 # and turns them into PRs. So Dependabot itself must never open PRs:
 #   - version-update PRs: disabled below (open-pull-requests-limit: 0)

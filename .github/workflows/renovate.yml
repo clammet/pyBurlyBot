@@ -2,8 +2,8 @@ name: Renovate
 
 on:
   schedule:
-    # Hourly: an upstream release becomes a PR within the hour.
-    - cron: "27 * * * *"
+    # Check for updates and revisit pending PRs every six hours.
+    - cron: "27 */6 * * *"
   workflow_dispatch:
 
 permissions:

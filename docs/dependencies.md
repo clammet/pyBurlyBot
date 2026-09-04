@@ -13,6 +13,7 @@ merge themselves.
 | Docker base image | tag + digest | `Dockerfile` |
 | GitHub Actions | commit SHA (+ version comment) | `.github/workflows/*.yml` |
 | Renovate itself | exact `RENOVATE_VERSION` env pin, bumped weekly | `.github/workflows/renovate.yml` |
+| Trivy engine | exact `TRIVY_VERSION` env pin | `.github/workflows/image-scan.yml` |
 
 The deploy side pins the *published* image by digest in the yuzuyu repo, not
 here; `docker-compose.yml` in this repo is local/dev and builds from source.
@@ -43,8 +44,10 @@ resolve to the same versions (both files install into one venv in CI).
 
 ## Renovate (self-hosted)
 
-`.github/workflows/renovate.yml` runs Renovate hourly under a repo-owned
+`.github/workflows/renovate.yml` runs Renovate every six hours under a repo-owned
 GitHub App; repo behavior lives in `.github/renovate.json5`.
+The cron requests a run at 00:27, 06:27, 12:27, and 18:27 UTC. GitHub can
+delay or skip scheduled runs, so these are not delivery guarantees.
 
 - App permissions: Contents RW, Pull requests RW, Workflows RW (action digest
   bumps edit workflow files), Checks R, Commit statuses R, Dependabot alerts R,
@@ -80,7 +83,8 @@ Renovate reads the alerts through its app token and raises the fix PRs
 
 ## CVE scanning
 
-`.github/workflows/image-scan.yml` runs Trivy weekly against the published
+`.github/workflows/image-scan.yml` runs Trivy daily against the published
 `ghcr.io/clammet/pyburlybot:latest` — OS packages and the baked venv — for
-CVEs disclosed between merges. Fixable HIGH/CRITICAL findings fail the run and
-upload SARIF to the Security tab.
+CVEs disclosed between merges. The image build also calls it after publishing,
+using the exact image digest so a later build cannot change the scan target.
+The scan is a post-publication notification, not a deployment or PR merge gate.
