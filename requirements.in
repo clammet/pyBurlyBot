@@ -9,6 +9,6 @@
 # requirements.txt and rejects space-separated option arguments.
 beautifulsoup4==4.15.0
 Hyphenate==1.1.0
-lxml==6.1.2
+lxml==6.1.3
 Twisted[tls]==26.4.0
 wikipedia==1.4.0
