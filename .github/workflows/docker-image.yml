@@ -5,12 +5,36 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   packages: write
 
 jobs:
+  publication-ready:
+    runs-on: ubuntu-latest
+    timeout-minutes: 42
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      ready: ${{ steps.gate.outputs.ready }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify the current revision and its CI
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/publication.py
+
   build:
+    if: needs.publication-ready.outputs.ready == 'true'
+    needs: publication-ready
     runs-on: ubuntu-latest
     outputs:
       image-ref: ghcr.io/${{ steps.repo.outputs.name }}@${{ steps.build.outputs.digest }}
@@ -36,18 +60,11 @@ jobs:
       - id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
+          pull: true
+          no-cache: ${{ github.event_name == 'workflow_dispatch' }}
           # use the checked-out workspace (includes .git), not the git context
           context: .
           push: true
           tags: |
             ghcr.io/${{ steps.repo.outputs.name }}:latest
             ghcr.io/${{ steps.repo.outputs.name }}:${{ github.sha }}
-
-  scan:
-    needs: build
-    permissions:
-      contents: read
-      security-events: write
-    uses: ./.github/workflows/image-scan.yml
-    with:
-      image-ref: ${{ needs.build.outputs.image-ref }}
