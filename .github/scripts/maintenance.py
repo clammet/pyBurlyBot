@@ -16,23 +16,25 @@ import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Collection, Sequence
 
 
-def command(args):
-    result = subprocess.run(args, check=False, capture_output=True)
+def command(args: list[str]) -> bytes:
+    # Fixed CLI argument lists from this controller; shell execution is never used.
+    result = subprocess.run(args, check=False, capture_output=True)  # noqa: S603
     if result.returncode:
         sys.stderr.write(result.stderr.decode(errors="replace"))
         result.check_returncode()
     return result.stdout
 
 
-def api(path, method="GET", data=None):
+def api(path: str, method: str = "GET", data: dict[str, Any] | None = None) -> Any:
     args = ["gh", "api", path, "--method", method]
     if data is None:
         raw = command(args)
     else:
-        raw = subprocess.run(
-            args + ["--input", "-"],
+        raw = subprocess.run(  # noqa: S603
+            [*args, "--input", "-"],
             input=json.dumps(data).encode(),
             check=True,
             capture_output=True,
@@ -40,7 +42,7 @@ def api(path, method="GET", data=None):
     return json.loads(raw) if raw else None
 
 
-def pages(path):
+def pages(path: str) -> list[dict[str, Any]]:
     result = []
     for page in range(1, 101):
         separator = "&" if "?" in path else "?"
@@ -53,11 +55,11 @@ def pages(path):
     raise ValueError("Pagination limit exceeded")
 
 
-def epoch(value):
+def epoch(value: str) -> float:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
-def findings(report, scope):
+def findings(report: dict[str, Any], scope: str) -> dict[str, dict[str, Any]]:
     """Reject incomplete output instead of treating a scanner error as clean."""
     if report.get("SchemaVersion") != 2 or not report.get("ArtifactName"):
         raise ValueError("Invalid Trivy report")
@@ -100,7 +102,7 @@ def findings(report, scope):
     return found
 
 
-def redact_secrets(report):
+def redact_secrets(report: dict[str, Any]) -> dict[str, Any]:
     for result in report.get("Results", []):
         for secret in result.get("Secrets", []) or []:
             secret["Match"] = "[redacted]"
@@ -108,7 +110,13 @@ def redact_secrets(report):
     return report
 
 
-def plan(current, previous, now, can_rebuild, pending_packages=()):
+def plan(
+    current: dict[str, dict[str, Any]],
+    previous: dict[str, dict[str, Any]],
+    now: float,
+    can_rebuild: bool,
+    pending_packages: Collection[str] = (),
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], bool]:
     """Attempt one fresh build per advisory, then allow a bounded repair window.
 
     A changing installed version does not restart the clock. Only absence in a
@@ -143,7 +151,9 @@ def plan(current, previous, now, can_rebuild, pending_packages=()):
     return state, actionable, rebuild
 
 
-def restore_state(repo, workflow, branch, artifact_name):
+def restore_state(
+    repo: str, workflow: str, branch: str, artifact_name: str
+) -> dict[str, dict[str, Any]]:
     # Select only artifacts from this trusted workflow on the default branch.
     # Never download PR artifacts or execute any content from an artifact.
     runs = api(
@@ -174,7 +184,7 @@ def restore_state(repo, workflow, branch, artifact_name):
     return {}
 
 
-def reconcile_issue(repo, key, title, body):
+def reconcile_issue(repo: str, key: str, title: str, body: str | None) -> None:
     marker = f"<!-- fleet-maintenance:{key} -->"
     issues = [
         x
@@ -213,7 +223,7 @@ def reconcile_issue(repo, key, title, body):
         api(f"repos/{repo}/issues", "POST", {"title": title, "body": body})
 
 
-def issue_body(actionable):
+def issue_body(actionable: dict[str, dict[str, Any]]) -> str | None:
     if not actionable:
         return None
     lines = [
@@ -242,7 +252,9 @@ def issue_body(actionable):
     return "\n".join(lines)[:60000]
 
 
-def collect_images(paths, owned, defaults):
+def collect_images(
+    paths: Sequence[Path], owned: Collection[str], defaults: dict[str, str]
+) -> list[str]:
     values = {}
     for path in paths:
         for key, value in re.findall(
@@ -251,8 +263,8 @@ def collect_images(paths, owned, defaults):
             values[key] = value.split(" #", 1)[0].strip().strip('"').strip("'")
     values.update(defaults)
 
-    def resolve(value, seen):
-        def substitute(match):
+    def resolve(value: str, seen: set[str]) -> str:
+        def substitute(match: re.Match[str]) -> str:
             expression = match.group(1).strip()
             variable = expression.split("|", 1)[0].strip()
             if variable in seen:
@@ -286,7 +298,7 @@ def collect_images(paths, owned, defaults):
     return sorted(images)
 
 
-def pending_updates(repo, packages):
+def pending_updates(repo: str, packages: set[str]) -> set[str]:
     pending = set()
     for pr in pages(f"repos/{repo}/pulls?state=open"):
         if pr["user"]["type"] != "Bot" or not pr["head"]["ref"].startswith("renovate/"):
@@ -310,7 +322,7 @@ def pending_updates(repo, packages):
     return pending
 
 
-def scan(config):
+def scan(config: dict[str, Any]) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     metadata = api(f"repos/{repo}")
     branch = metadata["default_branch"]
@@ -347,7 +359,7 @@ def scan(config):
         ]
         if config.get("ignorefile"):
             args += ["--ignorefile", config["ignorefile"]]
-        command(args + [target["ref"]])
+        command([*args, target["ref"]])
         report = redact_secrets(json.loads(json_path.read_text()))
         current.update(findings(report, target["scope"]))
         json_path.write_text(json.dumps(report))
@@ -393,7 +405,7 @@ def scan(config):
         ]
         if config.get("ignorefile"):
             fs_args += ["--ignorefile", config["ignorefile"]]
-        command(fs_args + ["."])
+        command([*fs_args, "."])
         report = redact_secrets(json.loads(json_path.read_text()))
         current.update(findings(report, "locked dependencies"))
         json_path.write_text(json.dumps(report))
@@ -424,7 +436,7 @@ def scan(config):
         outputs.write(f"rebuild={str(rebuild).lower()}\n")
 
 
-def recover_workflows(repo, config):
+def recover_workflows(repo: str, config: dict[str, Any]) -> None:
     # Only these repository-reviewed workflows may be replayed. Bootstrap,
     # database restores, and arbitrary manual operations are never inferred safe.
     branch = api(f"repos/{repo}")["default_branch"]
@@ -475,7 +487,7 @@ def recover_workflows(repo, config):
         )
 
 
-def stalled_updates(config):
+def stalled_updates(config: dict[str, Any]) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     blocked = []
     for pr in pages(f"repos/{repo}/pulls?state=open"):
@@ -498,7 +510,7 @@ def stalled_updates(config):
     recover_workflows(repo, config)
 
 
-def host_issue(path):
+def host_issue(path: str) -> None:
     report = json.loads(Path(path).read_text())
     checks = report["checks"]
     if not isinstance(checks, list) or not checks:

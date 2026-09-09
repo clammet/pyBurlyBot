@@ -5,13 +5,14 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 
-def api(path):
-    return json.loads(subprocess.check_output(["gh", "api", path]))
+def api(path: str) -> Any:
+    return json.loads(subprocess.check_output(["gh", "api", path]))  # noqa: S603, S607
 
 
-def ready():
+def ready() -> bool:
     if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
         return True  # Existing build steps still prohibit publication on PRs.
     repo = os.environ["GITHUB_REPOSITORY"]
