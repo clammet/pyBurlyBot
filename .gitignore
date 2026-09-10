@@ -6,6 +6,7 @@ __pycache__/
 #datafolder and settings
 data/
 *.json
+!/.github/maintenance.json
 *.log
 logindex/
 .microirc-harness-*/
