@@ -652,12 +652,44 @@ class UpdateEventTest(TestCase):
                 "M\tdocker/healthcheck.py",
                 "M\tmicroirc_server.py",
                 "M\tdbexport.py",
+                "M\t.github/scripts/maintenance.py",
+                "M\t.github/scripts/publication.py",
+                "A\tscripts/new_tool.py",
+                "A\tnew_root_tool.py",
+                "M\trequirements-dev.txt",
             )
         )
         self.assertEqual(
             updaterelaunch._classify_changes(changes),
             {"core": False, "modules": False, "deps": False, "any": True},
         )
+
+    def test_core_runtime_and_dependency_changes_require_restart(self) -> None:
+        for path in (
+            "pyBurlyBot.py",
+            "__init__.py",
+            "util/settings.py",
+            "util/new/helper.py",
+        ):
+            with self.subTest(path=path):
+                result = updaterelaunch._classify_changes(f"M\t{path}")
+                self.assertTrue(result["core"])
+        result = updaterelaunch._classify_changes("M\trequirements.txt")
+        self.assertTrue(result["deps"])
+
+    def test_tooling_update_is_merged_without_restart_or_module_reload(self) -> None:
+        result = updaterelaunch._classify_changes(
+            "M\t.github/scripts/maintenance.py\nM\t.github/workflows/ci.yml"
+        )
+        with (
+            patch.object(updaterelaunch, "_check_and_apply", return_value=result),
+            patch.object(updaterelaunch, "_restart") as restart,
+            patch.object(updaterelaunch, "call_in_reactor") as call,
+            patch("builtins.print"),
+        ):
+            updaterelaunch._event_update_check(self.bot)
+        restart.assert_not_called()
+        call.assert_not_called()
 
     def test_pending_restart_does_not_starve_module_reloads(self) -> None:
         self.options["auto_restart"] = False

@@ -183,6 +183,10 @@ orchestrator that edits `BurlyBot.json` externally can apply it with:
 Likewise `updaterelaunch` runs its git update on an authorized `update` event
 (debounced by `update_debounce` seconds), which is how a GitHub push webhook
 pointed at `/hooks/update` deploys merges to `git_branch` without polling.
+Only the bot entry point (`pyBurlyBot.py`), root package initializer, Python
+files under `util/`, and runtime dependency changes require a process restart.
+Module changes hot-reload. CI scripts, tests, documentation, and standalone
+tooling are merged without restarting the bot.
 
 See `docs/examples/modules/webhookexample.py` and `docs/deploy/docker.md`.
 

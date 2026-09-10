@@ -60,15 +60,10 @@ _restart_pending = ThreadEvent()
 _seen_lock = Lock()
 _seen_events: deque[str] = deque(maxlen=64)
 
-# python files that never run inside the bot process: changing them must not
-# force a restart (matched with str.startswith, so bare names are prefixes)
-_NON_RUNTIME_PYTHON_PREFIXES = (
-    "tests/",
-    "docs/",
-    "docker/",
-    "microirc",
-    "dbexport.py",
-)
+# Core runtime locations are explicit. Repository tooling, examples, tests,
+# and image helpers are not imported by the long-lived bot process.
+_CORE_PYTHON_FILES = frozenset({"pyBurlyBot.py", "__init__.py"})
+_CORE_PYTHON_DIRECTORIES = ("util/",)
 
 
 class _Pending:
@@ -94,8 +89,8 @@ def _classify_changes(changes: str) -> dict[str, bool]:
                 result["modules"] = True
             elif path == "requirements.txt":
                 result["deps"] = True
-            elif path.endswith(".py") and not path.startswith(
-                _NON_RUNTIME_PYTHON_PREFIXES
+            elif path in _CORE_PYTHON_FILES or (
+                path.endswith(".py") and path.startswith(_CORE_PYTHON_DIRECTORIES)
             ):
                 result["core"] = True
     return result
