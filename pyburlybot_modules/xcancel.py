@@ -5,6 +5,7 @@ from util import Mapping
 
 NITTER = "nitter.cf"
 
+
 def remove_elon(event: Event, bot: BotLike) -> None:
     match = event.regex_match
     posturlportion = match.group(1)

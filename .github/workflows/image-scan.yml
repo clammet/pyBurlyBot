@@ -1,64 +1,90 @@
-name: Image CVE scan
+---
+# Generated fleet pattern. Policy and target details: .github/maintenance.json.
+# A vulnerability is a finding; scanner, registry, and API errors fail the run.
+name: Maintenance security scan
 
 on:
   schedule:
-    # Daily scan of the published image: catches CVEs disclosed in already
-    # merged (OS packages especially) dependencies between Renovate merges.
-    - cron: "43 5 * * *"
+    - cron: "24 6 * * *"
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      image-ref:
-        description: Published image digest to scan after a build
-        required: true
-        type: string
+  workflow_run:
+    workflows: ["Build Docker image"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
+  pull-requests: read
+  checks: read
+  statuses: read
+  packages: read
+  actions: write
+  issues: write
   security-events: write
 
+concurrency:
+  group: maintenance-security
+  cancel-in-progress: false
+
 env:
-  # Track the engine separately from the action wrapper's default version.
   # renovate: datasource=github-releases depName=aquasecurity/trivy
   TRIVY_VERSION: v0.74.0
 
 jobs:
   scan:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: main
           persist-credentials: false
 
-      - name: Scan published image
-        id: scan
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The first filesystem scan installs the pinned engine. The controller
+      # performs the configured scans and derives all decisions from JSON.
+      - name: Install Trivy and verify scanner operation
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ inputs.image-ref || 'ghcr.io/clammet/pyburlybot:latest' }}
           version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .github
           scanners: vuln
           format: json
-          output: trivy.json
-          list-all-pkgs: true
-          ignore-unfixed: true
-          # Applied before producing JSON, so SARIF and the failure check
-          # use the same reviewed exceptions.
-          trivyignores: .trivyignore.yaml
-          # Keep all severities for reporting; enforce the threshold separately.
+          output: scanner-check.json
           exit-code: "0"
 
-      - name: Generate code-scanning report
-        id: sarif
-        run: trivy convert --format sarif --output trivy.sarif trivy.json
+      - name: Scan and reconcile maintenance findings
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/maintenance.py scan
 
-      - uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
-        if: ${{ !cancelled() && steps.sarif.outcome == 'success' }}
+      - name: Save reports and retry state
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          sarif_file: trivy.sarif
-          category: trivy-image
+          name: maintenance-state
+          path: maintenance-results/
+          if-no-files-found: error
+          retention-days: 30
 
-      - name: Report and fail on fixable HIGH or CRITICAL findings
-        if: ${{ !cancelled() && steps.scan.outcome == 'success' }}
-        # Use the same scan for the log and exit status. The action wrapper
-        # unsets severity for SARIF by default, so it must not be the gate.
-        run: trivy convert --format table --severity HIGH,CRITICAL --exit-code 1 trivy.json
+      - name: Refresh code scanning, including empty results after fixes
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: maintenance-results
+          wait-for-processing: true
+
+      # Save state BEFORE dispatch. The post-build scan observes the attempt
+      # and cannot recursively request the same rebuild forever.
+      - name: Request one fresh rebuild for newly fixable findings
+        if: steps.scan.outputs.rebuild == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run docker-image.yml --ref main

@@ -29,6 +29,17 @@ jobs:
       # activity. Re-enabling an active workflow resets that clock, so this
       # keeps every scheduled workflow alive while leaving manually disabled
       # ones alone.
+      - name: Configure public GitHub dependency lookups
+        env:
+          LOOKUP_TOKEN: ${{ secrets.RENOVATE_GITHUB_LOOKUP_TOKEN }}
+        run: |
+          if [ -n "$LOOKUP_TOKEN" ]; then
+            rules=$(jq -cn --arg t "$LOOKUP_TOKEN" \
+              '["github-tags", "github-releases", "github-changelog"]
+               | map({hostType: ., matchHost: "api.github.com", token: $t})')
+            echo "RENOVATE_HOST_RULES=$rules" >> "$GITHUB_ENV"
+          fi
+
       - name: Keep scheduled workflows alive
         env:
           GH_TOKEN: ${{ github.token }}

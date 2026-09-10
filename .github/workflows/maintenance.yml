@@ -1,0 +1,40 @@
+---
+name: Maintenance watchdog
+
+on:
+  schedule:
+    - cron: "26 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+  actions: write
+
+concurrency:
+  group: maintenance-watchdog
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Keep workflows alive without overriding manual disables
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows" --paginate \
+            --jq '.workflows[] | select(.state == "active" or .state == "disabled_inactivity") | .id' \
+          | while read -r id; do
+              gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/${id}/enable"
+            done
+      - name: Escalate stalled updates and close recovered issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/maintenance.py updates
