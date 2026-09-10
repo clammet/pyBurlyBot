@@ -497,11 +497,16 @@ def stalled_updates(config: dict[str, Any]) -> None:
         # normal release soak and repeated six-hourly Renovate attempts.
         if time.time() - epoch(pr["created_at"]) < 8 * 86400:
             continue
+        # An old PR can be actively repairing itself after a rebase or update.
+        # Use the actual head commit, not comments/body edits, for this grace.
+        head = api(f"repos/{repo}/commits/{pr['head']['sha']}")
+        if time.time() - epoch(head["commit"]["committer"]["date"]) < 48 * 3600:
+            continue
         blocked.append(f"- [{pr['title']}]({pr['html_url']})")
     body = None
     if blocked:
         body = (
-            "These automated updates have remained open for more than eight days. "
+            "These automated updates have remained open for more than eight days, with no new bot commit in the last 48 hours. "
             "The normal update/CI/merge loop has not completed; inspect their checks, "
             "merge requirements, and Dependency Dashboard. This issue closes automatically "
             "when none remain.\n\n" + "\n".join(sorted(blocked))

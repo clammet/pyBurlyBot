@@ -7,7 +7,8 @@ merges tested updates. Routine releases soak for three days (seven for
 passwordreset packages); majors soak for a week. CI and deployment checks remain
 blocking. Moved GitHub Action tags and changes needing data/runtime migrations
 still require review. The daily watchdog raises one issue for updates stalled
-longer than eight days and closes it when they recover.
+longer than eight days, with 48 hours of grace after a new bot commit, and
+closes it when they recover.
 
 Security scans run daily and after image builds. All severities remain in the
 reports; high/critical findings start a 72-hour remediation window. A matching green or
