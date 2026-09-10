@@ -1,0 +1,21 @@
+{
+  "workflow": "image-scan.yml",
+  "images": [
+    {
+      "ref": "ghcr.io/clammet/pyburlybot:latest",
+      "scope": "published image",
+      "sarif": true,
+      "category": "trivy-image"
+    }
+  ],
+  "build_workflow": "docker-image.yml",
+  "ignorefile": ".trivyignore.yaml",
+  "filesystem": true,
+  "ci_workflow": "ci.yml",
+  "retry_workflows": [
+    "renovate.yml",
+    "image-scan.yml",
+    "ci.yml",
+    "docker-image.yml"
+  ]
+}
