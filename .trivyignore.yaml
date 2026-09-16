@@ -29,3 +29,44 @@ vulnerabilities:
     statement: >-
       pip ships msgpack's pure-Python fallback. The C extension affected by
       the Unpacker reuse crash is absent from the image.
+
+  # Reviewed 2026-09-16 against the amd64 image scanned by Actions run
+  # 34965972761, digest cdd05c725f7d96f7eb39252bd4466668327f50b06399571e10caa114b56c6e8d.
+  # PURLs are copied from that report, including architecture and distro.
+  # These are applicability exceptions, not claims that patches are installed.
+  # https://security-tracker.debian.org/tracker/CVE-2026-9538
+  - id: CVE-2026-9538
+    purls:
+      - pkg:deb/debian/libperl5.40@5.40.1-6%2Bdeb13u1?arch=amd64&distro=debian-13.7
+      - pkg:deb/debian/perl@5.40.1-6%2Bdeb13u1?arch=amd64&distro=debian-13.7
+      - pkg:deb/debian/perl-base@5.40.1-6%2Bdeb13u1?arch=amd64&distro=debian-13.7
+      - pkg:deb/debian/perl-modules-5.40@5.40.1-6%2Bdeb13u1?arch=all&distro=debian-13.7
+    expired_at: 2026-12-15
+    statement: >-
+      The affected Archive::Tar parser requires processing a crafted tar
+      archive. Perl is installed for Git; the bot and inspected Git scripts
+      do not invoke Archive::Tar. Runtime updates use git fetch/diff/merge
+      and Python pip, not this Perl parser. Reassess if archive processing
+      or new Perl commands are introduced.
+
+  # https://security-tracker.debian.org/tracker/CVE-2026-16742
+  - id: CVE-2026-16742
+    purls:
+      - pkg:deb/debian/libsystemd0@257.13-1~deb13u1?arch=amd64&distro=debian-13.7
+      - pkg:deb/debian/libudev1@257.13-1~deb13u1?arch=amd64&distro=debian-13.7
+    expired_at: 2026-12-15
+    statement: >-
+      The vulnerability is in systemd-homed user-record handling. The image
+      contains these libraries but no systemd-homed executable; it runs the
+      bot under tini as UID 10002. Reassess if systemd-homed is installed or
+      made accessible to the container.
+
+  # https://curl.se/docs/CVE-2026-12064.html
+  - id: CVE-2026-12064
+    purls:
+      - pkg:deb/debian/libcurl3t64-gnutls@8.14.1-2%2Bdeb13u5?arch=amd64&distro=debian-13.7
+    expired_at: 2026-12-15
+    statement: >-
+      Upstream explicitly limits this proto-default SSH verification bug to
+      the curl command-line tool, not libcurl or its callers. The image has
+      libcurl for Git HTTPS but no curl executable. Reassess if curl is added.

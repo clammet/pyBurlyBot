@@ -85,15 +85,29 @@ Renovate reads the alerts through its app token and raises the fix PRs
 
 `.github/workflows/image-scan.yml` runs Trivy daily against the published
 `ghcr.io/clammet/pyburlybot:latest` — OS packages and the baked venv — for
-CVEs disclosed between merges. The image build also calls it after publishing,
-using the exact image digest so a later build cannot change the scan target.
-The scan is a post-publication notification, not a deployment or PR merge gate.
+CVEs disclosed between merges. It also runs after image builds, scanning the
+published `latest` tag configured in `.github/maintenance.json`. The scan is a
+post-publication notification, not a deployment or PR merge gate.
+
+HIGH/CRITICAL findings that outlast the remediation window appear in one
+maintenance issue. An empty fixed-version field means the scanner has no fixed
+version recorded for the scanned package/release, not that no upstream patch
+exists. The issue includes the scanner's status, including deferred fixes.
+When a previously unfixed, unsuppressed finding gains a fixed version, the next
+scan requests one uncached image rebuild. The issue body updates as findings
+change, without separate comments or fix-availability notifications. Subscribe
+to the issue for GitHub closure notifications. It closes automatically when a
+complete scan has no findings requiring attention; scanner failures cannot
+close it.
 
 ### Ignoring a reviewed finding
 
 Edit `.trivyignore.yaml` in the repository root. The scan workflow checks out
 this file and applies it before generating the JSON report, SARIF upload, and
-HIGH/CRITICAL failure check. Ignored findings therefore do not fail the job.
+maintenance decisions. Ignored findings do not appear in the maintenance issue
+or trigger rebuilds when a fix becomes available. Normal dependency updates
+continue. Exceptions can resolve findings without installing a patch, so issue
+closure does not imply that all underlying packages were patched.
 GitHub's **Dismiss alert** button only changes the portal's alert state; it
 does not tell Trivy to ignore a finding.
 
@@ -127,7 +141,7 @@ for additional filters, including paths.
 
 Commit and merge the file change into `main`. The post-publication scan or
 the next daily scan will pick it up. To scan immediately after merging, use
-**Actions → Image CVE scan → Run workflow**, selecting `main`. Use a new run,
+**Actions → Maintenance security scan → Run workflow**, selecting `main`. Use a new run,
 not a rerun of an old run, which uses its original commit. To undo an
 exception, remove its list entry and merge that change.
 
@@ -138,3 +152,14 @@ embedded inventory without package paths, so the rules also match a
 standalone installation of the same package/version. Reassess these entries
 if either package becomes an application dependency; they are not blanket
 claims that those packages are safe.
+
+Three additional exceptions reviewed on September 16, 2026 cover seven Debian
+package findings in the image scanned by Actions run 34965972761. They cover
+Perl's unused Archive::Tar parser (CVE-2026-9538), the absent systemd-homed
+executable (CVE-2026-16742), and a curl command-line-only bug reported against
+libcurl (CVE-2026-12064). The file records exact package PURLs and evidence.
+These exceptions expire on December 15, 2026 for reassessment. Other advisories
+and package versions remain visible. If an exception expires while its finding
+is still present, normal maintenance tracking resumes with a new remediation
+window. Unreviewed util-linux, ncurses, ACL, libcurl and Expat findings remain
+active; these exceptions alone will not close issue #143.

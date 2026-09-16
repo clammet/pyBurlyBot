@@ -80,6 +80,7 @@ def findings(report: dict[str, Any], scope: str) -> dict[str, dict[str, Any]]:
                 severity=vuln["Severity"],
                 installed=vuln["InstalledVersion"],
                 fixed=vuln.get("FixedVersion", ""),
+                status=vuln.get("Status") or "unknown",
                 target=result["Target"],
             )
         for secret in result.get("Secrets", []) or []:
@@ -228,11 +229,12 @@ def issue_body(actionable: dict[str, dict[str, Any]]) -> str | None:
         return None
     lines = [
         "Automatic maintenance needs attention: persistent HIGH/CRITICAL findings or exposed credentials.",
-        "A fresh image build was requested where this repository owns the image and a fix exists.",
-        "Renovate continues to update dependencies. This issue closes when a complete scan confirms recovery.",
+        "For images built here, a newly fixable finding requests one fresh rebuild. Renovate continues to update dependencies.",
+        "An absent fixed version means the scanner records no fix for this package/release; an upstream fix may already exist. Status is reported by the scanner.",
+        "This issue closes when a complete scan has no findings requiring attention, including after reviewed exceptions are applied.",
         "",
-        "| Scope | Package | Advisory | Installed | Fix |",
-        "| --- | --- | --- | --- | --- |",
+        "| Scope | Package | Advisory | Installed | Fix | Status |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for finding in sorted(
         actionable.values(), key=lambda x: (x["scope"], x["package"], x["advisory"])
@@ -242,7 +244,8 @@ def issue_body(actionable: dict[str, dict[str, Any]]) -> str | None:
             finding["package"],
             finding["advisory"],
             finding["installed"],
-            finding["fixed"] or "No upstream fix",
+            finding["fixed"] or "No fixed version recorded for this package/release",
+            finding.get("status", "unknown"),
         ]
         lines.append(
             "| "
