@@ -110,6 +110,40 @@
         "@types/node"
       ],
       "groupName": "Node runtime"
+    },
+    {
+      "description": "Explain the 3-day release-age gate in PRs after applying package-specific policies",
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch",
+        "digest",
+        "pinDigest"
+      ],
+      "matchJsonata": [
+        "minimumReleaseAge = '3 days'"
+      ],
+      "prBodyNotes": [
+        "{{#unless isVulnerabilityAlert}}**Release-age gate:** `{{depName}}` requires **3 days** since release (not PR creation). See `renovate/stability-days` for the current status.{{/unless}}",
+        "{{#unless isVulnerabilityAlert}}If `renovate/stability-days` is pending, the release-age requirement is unmet or a required release timestamp is unavailable. Renovate rechecks on its scheduled runs; automerge also requires passing checks and an enabled automerge policy. The rebase/retry checkbox is optional and is not an approval request.{{/unless}}"
+      ]
+    },
+    {
+      "description": "Explain the 7-day release-age gate in PRs after applying package-specific policies",
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch",
+        "digest",
+        "pinDigest"
+      ],
+      "matchJsonata": [
+        "minimumReleaseAge = '7 days'"
+      ],
+      "prBodyNotes": [
+        "{{#unless isVulnerabilityAlert}}**Release-age gate:** `{{depName}}` requires **7 days** since release (not PR creation). See `renovate/stability-days` for the current status.{{/unless}}",
+        "{{#unless isVulnerabilityAlert}}If `renovate/stability-days` is pending, the release-age requirement is unmet or a required release timestamp is unavailable. Renovate rechecks on its scheduled runs; automerge also requires passing checks and an enabled automerge policy. The rebase/retry checkbox is optional and is not an approval request.{{/unless}}"
+      ]
     }
   ],
   "platformAutomerge": false,
