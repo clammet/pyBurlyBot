@@ -6,12 +6,15 @@ Run only from the default branch; never import or execute pull-request code.
 import json
 import os
 import subprocess
+from typing import Any
 
 CONTEXT = "Dependency update safety"
 ARTIFACTS = "renovate/artifacts"
 
 
-def evaluate(pr, statuses, repository):
+def evaluate(
+    pr: dict[str, Any], statuses: list[dict[str, Any]], repository: str
+) -> tuple[str, str]:
     head = pr["head"]
     if (head.get("repo") or {}).get("full_name") != repository or not head[
         "ref"
@@ -21,7 +24,7 @@ def evaluate(pr, statuses, repository):
         return "failure", "Renovate branch was not opened by a bot"
     # Status IDs increase; evaluate the latest result for each context, including
     # later failures. Never accept a different actor spoofing a bot's success.
-    latest = {}
+    latest: dict[str, dict[str, Any]] = {}
     for status in sorted(statuses, key=lambda item: item["id"], reverse=True):
         if status["context"].startswith("renovate/"):
             latest.setdefault(status["context"], status)
@@ -39,13 +42,16 @@ def evaluate(pr, statuses, repository):
     return "success", "Renovate release-age and artifact checks are satisfied"
 
 
-def api(path, payload=None, paginate=False):
+def api(
+    path: str, payload: dict[str, str] | None = None, paginate: bool = False
+) -> Any:
     command = ["gh", "api", path]
     if paginate:
         command += ["--paginate", "--slurp"]
     if payload is not None:
         command += ["--method", "POST", "--input", "-"]
-    result = subprocess.run(
+    # Fixed executable and argument list, with JSON on stdin; no shell or PR code.
+    result = subprocess.run(  # noqa: S603
         command,
         input=json.dumps(payload) if payload else None,
         text=True,
@@ -56,7 +62,7 @@ def api(path, payload=None, paginate=False):
     return [item for page in data for item in page] if paginate else data
 
 
-def main():
+def main() -> None:
     repository = os.environ["GITHUB_REPOSITORY"]
     # Reconcile every open PR each time. Actions coalesces pending runs in a
     # concurrency group, so checking only the event's PR could lose an update.
