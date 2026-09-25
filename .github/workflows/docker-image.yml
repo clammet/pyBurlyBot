@@ -28,9 +28,7 @@ jobs:
           persist-credentials: false
       - name: Verify the current revision and its CI
         id: gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 .github/scripts/publication.py
+        uses: yuzuyuzuyu/repo-automation/actions/publication@c691d5f2b7a126cdbbbe62811329ca24f8b643a9 # v1.0.0
 
   build:
     if: needs.publication-ready.outputs.ready == 'true'

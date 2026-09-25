@@ -1,16 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:best-practices",
-    "customManagers:githubActionsVersions"
+    "github>yuzuyuzuyu/repo-automation:public#v1.0.0"
   ],
-  "timezone": "Australia/Melbourne",
   "labels": [
     "dependencies"
   ],
-  "prHourlyLimit": 0,
   "prConcurrentLimit": 10,
-  "minimumReleaseAge": "3 days",
   "pip_requirements": {
     "enabled": false
   },
@@ -19,60 +15,32 @@
       "/^requirements(-dev)?\\.txt$/"
     ]
   },
-  "lockFileMaintenance": {
-    "minimumReleaseAge": null,
-    "enabled": true,
-    "automerge": true,
-    "rebaseWhen": "behind-base-branch"
-  },
-  "dependencyDashboard": true,
   "vulnerabilityAlerts": {
     "labels": [
       "security"
     ],
     "automerge": true
   },
-  "osvVulnerabilityAlerts": true,
   "packageRules": [
     {
-      "description": "Automerge non-major updates once required checks pass; rebase onto main first so the checks ran against the current base",
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "pin",
-        "pinDigest",
-        "digest"
-      ],
-      "automerge": true,
-      "rebaseWhen": "behind-base-branch"
+      "extends": [
+        "github>yuzuyuzuyu/repo-automation:non-major#v1.0.0"
+      ]
     },
     {
-      "description": "Attempt major updates automatically after a week; CI must pass before merge",
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": true,
-      "minimumReleaseAge": "7 days",
-      "dependencyDashboardApproval": false
+      "extends": [
+        "github>yuzuyuzuyu/repo-automation:major#v1.0.0"
+      ]
     },
     {
-      "description": "Pre-1.0 updates use the same required CI gate",
-      "matchCurrentVersion": "<1.0.0",
-      "matchUpdateTypes": [
-        "minor"
-      ],
-      "automerge": true
+      "extends": [
+        "github>yuzuyuzuyu/repo-automation:pre-one#v1.0.0"
+      ]
     },
     {
-      "description": "Never automerge GitHub Actions digest changes",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchUpdateTypes": [
-        "digest",
-        "pinDigest"
-      ],
-      "automerge": false
+      "extends": [
+        "github>yuzuyuzuyu/repo-automation:action-digest-review#v1.0.0"
+      ]
     },
     {
       "description": "A Python minor is a runtime upgrade (bump ruff target-version, CI python-version alongside): human decision",
@@ -95,64 +63,24 @@
       "enabled": false
     },
     {
-      "description": "Renovate engine: several releases a day, so take the weekly one; no digest pin because the annotated RENOVATE_VERSION env var holds a plain tag",
-      "matchDepNames": [
-        "ghcr.io/renovatebot/renovate"
-      ],
-      "schedule": [
-        "before 6am on monday"
-      ],
-      "pinDigests": false
-    },
-    {
-      "description": "Keep Node image, CI runtime, and Node types in one tested PR",
-      "matchPackageNames": [
-        "node",
-        "@types/node"
-      ],
-      "groupName": "Node runtime"
-    },
-    {
-      "description": "Explain the 3-day release-age gate in PRs after applying package-specific policies",
-      "matchUpdateTypes": [
-        "major",
-        "minor",
-        "patch",
-        "digest",
-        "pinDigest"
-      ],
-      "matchJsonata": [
-        "minimumReleaseAge = '3 days'"
-      ],
-      "prBodyNotes": [
-        "{{#unless isVulnerabilityAlert}}**Release-age gate:** `{{depName}}` requires **3 days** since release (not PR creation). See `renovate/stability-days` for the current status.{{/unless}}",
-        "{{#unless isVulnerabilityAlert}}If `renovate/stability-days` is pending, the release-age requirement is unmet or a required release timestamp is unavailable. Renovate rechecks on its scheduled runs; automerge also requires passing checks and an enabled automerge policy. The rebase/retry checkbox is optional and is not an approval request.{{/unless}}"
+      "extends": [
+        "github>yuzuyuzuyu/repo-automation:renovate-engine#v1.0.0"
       ]
     },
     {
-      "description": "Explain the 7-day release-age gate in PRs after applying package-specific policies",
-      "matchUpdateTypes": [
-        "major",
-        "minor",
-        "patch",
-        "digest",
-        "pinDigest"
-      ],
-      "matchJsonata": [
-        "minimumReleaseAge = '7 days'"
-      ],
-      "prBodyNotes": [
-        "{{#unless isVulnerabilityAlert}}**Release-age gate:** `{{depName}}` requires **7 days** since release (not PR creation). See `renovate/stability-days` for the current status.{{/unless}}",
-        "{{#unless isVulnerabilityAlert}}If `renovate/stability-days` is pending, the release-age requirement is unmet or a required release timestamp is unavailable. Renovate rechecks on its scheduled runs; automerge also requires passing checks and an enabled automerge policy. The rebase/retry checkbox is optional and is not an approval request.{{/unless}}"
+      "extends": [
+        "github>yuzuyuzuyu/repo-automation:node-runtime#v1.0.0"
+      ]
+    },
+    {
+      "extends": [
+        "github>yuzuyuzuyu/repo-automation:age-3-days#v1.0.0"
+      ]
+    },
+    {
+      "extends": [
+        "github>yuzuyuzuyu/repo-automation:age-7-days#v1.0.0"
       ]
     }
-  ],
-  "platformAutomerge": true,
-  "internalChecksFilter": "strict",
-  "statusCheckWhen": {
-    "artifactError": "always"
-  },
-  "rebaseWhen": "behind-base-branch",
-  "description": "Renovate owns dependency updates. Tested updates merge after the release soak; unresolved maintenance is reported by the maintenance workflows. See .github/MAINTENANCE.md.",
-  "automergeType": "pr"
+  ]
 }
