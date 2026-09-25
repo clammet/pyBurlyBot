@@ -20,6 +20,7 @@
     ]
   },
   "lockFileMaintenance": {
+    "minimumReleaseAge": null,
     "enabled": true,
     "automerge": true,
     "rebaseWhen": "behind-base-branch"
@@ -146,7 +147,11 @@
       ]
     }
   ],
-  "platformAutomerge": false,
+  "platformAutomerge": true,
+  "internalChecksFilter": "strict",
+  "statusCheckWhen": {
+    "artifactError": "always"
+  },
   "rebaseWhen": "behind-base-branch",
   "description": "Renovate owns dependency updates. Tested updates merge after the release soak; unresolved maintenance is reported by the maintenance workflows. See .github/MAINTENANCE.md.",
   "automergeType": "pr"

@@ -1,0 +1,36 @@
+name: Dependency update safety
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  status:
+  workflow_run:
+    workflows: [Renovate]
+    types: [completed]
+  workflow_dispatch:
+
+# Runs use trusted default-branch code and GitHub metadata only. Never check
+# out a PR head or download PR artifacts in this privileged workflow.
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: dependency-update-safety
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: github.event_name != 'status' || startsWith(github.event.context, 'renovate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Evaluate Renovate checks on current PR heads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/renovate_readiness.py

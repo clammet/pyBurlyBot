@@ -2,12 +2,13 @@ name: Renovate
 
 on:
   schedule:
-    # Check for updates and revisit pending PRs every six hours.
-    - cron: "27 */6 * * *"
+    # Check for updates and rebase stale PRs hourly.
+    - cron: "27 * * * *"
   workflow_dispatch:
 
 permissions:
   actions: write
+  contents: read
 
 concurrency:
   group: renovate
@@ -60,6 +61,18 @@ jobs:
         with:
           client-id: ${{ vars.RENOVATE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+
+      - name: Verify native automerge protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/rules/branches/${DEFAULT_BRANCH}" |
+            jq -e 'any(.[];
+              .type == "required_status_checks" and
+              .parameters.strict_required_status_checks_policy == true and
+              any(.parameters.required_status_checks[];
+                .context == "Dependency update safety" and .integration_id == 15368))'
 
       - uses: renovatebot/github-action@37beffda261423addd537c33f2d126df7f6ffbab # v46.2.6
         with:

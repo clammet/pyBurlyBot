@@ -1,12 +1,21 @@
 # Automatic maintenance
 
 Renovate is the only dependency PR writer. Dependabot provides alerts, with its
-security-update PRs disabled in repository settings. Renovate checks the complete
-CI status set itself (`platformAutomerge: false`), rebases stale branches, and
-merges tested updates. Routine releases soak for three days (seven for
-passwordreset packages); majors soak for a week. CI and deployment checks remain
-blocking. Moved GitHub Action tags and changes needing data/runtime migrations
-still require review. The daily watchdog raises one issue for updates stalled
+security-update PRs disabled in repository settings. Renovate runs hourly and
+queues eligible PRs for GitHub-native automerge. The main-branch ruleset requires
+up-to-date branches, the existing CI/build checks and `Dependency update safety`.
+The safety workflow reads only trusted default-branch code and PR-head statuses;
+it requires Renovate's successful artifact-generation check and blocks pending
+release-age checks or failed Renovate checks. Status events refresh the gate
+without waiting for another Renovate run after CI passes.
+
+Routine releases soak for three days; majors soak for a week. Lockfile maintenance
+is age-exempt because it has no release timestamp, but still needs successful
+artifact generation and CI. Stale branches need a rebase and fresh CI before
+merging. GitHub Actions digest changes and configured runtime/data migrations
+still require review. Private repositories retain bot-managed merges because
+the current GitHub plan does not provide their required branch protections.
+The daily watchdog raises one issue for updates stalled
 longer than eight days, with 48 hours of grace after a new bot commit, and
 closes it when they recover.
 
