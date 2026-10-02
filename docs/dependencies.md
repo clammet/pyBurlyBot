@@ -44,10 +44,19 @@ resolve to the same versions (both files install into one venv in CI).
 
 ## Renovate (self-hosted)
 
-`.github/workflows/renovate.yml` runs Renovate every six hours under a repo-owned
+`.github/workflows/renovate.yml` runs Renovate hourly under a repo-owned
 GitHub App; repo behavior lives in `.github/renovate.json5`.
-The cron requests a run at 00:27, 06:27, 12:27, and 18:27 UTC. GitHub can
+The cron requests a run at 27 minutes past each hour UTC. GitHub can
 delay or skip scheduled runs, so these are not delivery guarantees.
+
+The workflow passes [`dockerMaxPages: 10`](https://docs.renovatebot.com/self-hosted-configuration/#dockermaxpages) through the shared runner's
+`renovate-config` input. Docker Hub rejects anonymous pagination beyond 1,000
+tags; without this cap, Renovate falls back to registry tag listings that lack
+release timestamps, leaving Python digest updates pending indefinitely.
+Docker Hub returns tags by most recent update, so this limits discovery to the
+1,000 most recently updated tags per image. Our current Python and Dockerfile
+frontend tags fit within that window. Revisit the cap if we start tracking older
+tags. Release-age requirements and required CI checks still apply.
 
 - App permissions: Contents RW, Pull requests RW, Workflows RW (action digest
   bumps edit workflow files), Checks R, Commit statuses R, Dependabot alerts R,
