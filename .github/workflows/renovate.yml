@@ -16,14 +16,10 @@ concurrency:
 
 jobs:
   renovate:
-    uses: yuzuyuzuyu/repo-automation/.github/workflows/renovate-runner.yml@c691d5f2b7a126cdbbbe62811329ca24f8b643a9 # v1.0.0
+    uses: yuzuyuzuyu/repo-automation/.github/workflows/renovate-runner.yml@c097875b7a718223d8a4cc255d130e04dce1ae66 # v1.0.2
     with:
       app-client-id: ${{ vars.RENOVATE_APP_CLIENT_ID }}
       native-automerge: true
-      # Docker Hub caps anonymous tag listings at 1,000 entries (10 pages).
-      # Going further makes Renovate fall back to timestamp-free registry data,
-      # which leaves Python digest updates blocked by minimumReleaseAge.
-      renovate-config: '{"dockerMaxPages":10}'
     secrets:
       RENOVATE_APP_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
       RENOVATE_GITHUB_LOOKUP_TOKEN: ${{ secrets.RENOVATE_GITHUB_LOOKUP_TOKEN }}
