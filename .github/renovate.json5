@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>yuzuyuzuyu/repo-automation:public#v1.0.4"
+    "github>yuzuyuzuyu/repo-automation:public#v1.0.5"
   ],
   "labels": [
     "dependencies"
@@ -24,22 +24,22 @@
   "packageRules": [
     {
       "extends": [
-        "github>yuzuyuzuyu/repo-automation:non-major#v1.0.4"
+        "github>yuzuyuzuyu/repo-automation:non-major#v1.0.5"
       ]
     },
     {
       "extends": [
-        "github>yuzuyuzuyu/repo-automation:major#v1.0.4"
+        "github>yuzuyuzuyu/repo-automation:major#v1.0.5"
       ]
     },
     {
       "extends": [
-        "github>yuzuyuzuyu/repo-automation:pre-one#v1.0.4"
+        "github>yuzuyuzuyu/repo-automation:pre-one#v1.0.5"
       ]
     },
     {
       "extends": [
-        "github>yuzuyuzuyu/repo-automation:action-digest-review#v1.0.4"
+        "github>yuzuyuzuyu/repo-automation:action-digest-review#v1.0.5"
       ]
     },
     {
@@ -64,27 +64,27 @@
     },
     {
       "extends": [
-        "github>yuzuyuzuyu/repo-automation:renovate-engine#v1.0.4"
+        "github>yuzuyuzuyu/repo-automation:renovate-engine#v1.0.5"
       ]
     },
     {
       "extends": [
-        "github>yuzuyuzuyu/repo-automation:node-runtime#v1.0.4"
+        "github>yuzuyuzuyu/repo-automation:node-runtime#v1.0.5"
       ]
     },
     {
       "extends": [
-        "github>yuzuyuzuyu/repo-automation:automation-updates#v1.0.4"
+        "github>yuzuyuzuyu/repo-automation:automation-updates#v1.0.5"
       ]
     },
     {
       "extends": [
-        "github>yuzuyuzuyu/repo-automation:age-3-days#v1.0.4"
+        "github>yuzuyuzuyu/repo-automation:age-3-days#v1.0.5"
       ]
     },
     {
       "extends": [
-        "github>yuzuyuzuyu/repo-automation:age-7-days#v1.0.4"
+        "github>yuzuyuzuyu/repo-automation:age-7-days#v1.0.5"
       ]
     }
   ]
