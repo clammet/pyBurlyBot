@@ -1,6 +1,6 @@
 # Dependency pinning and automation
 
-Everything this repo consumes is pinned exactly; a self-hosted Renovate run
+Application dependencies and build tools are pinned; a self-hosted Renovate run
 turns upstream releases into PRs, CI proves them, and green non-major PRs
 merge themselves.
 
@@ -12,24 +12,27 @@ merge themselves.
 | Python packages (all, incl. transitive) | version + sha256 hashes | `requirements.txt`, `requirements-dev.txt` (compiled lockfiles) |
 | Docker base image | tag + digest | `Dockerfile` |
 | GitHub Actions | commit SHA (+ version comment) | `.github/workflows/*.yml` |
-| Renovate itself | exact `RENOVATE_VERSION` env pin, bumped weekly | `.github/workflows/renovate.yml` |
-| Trivy engine | exact `TRIVY_VERSION` env pin | `.github/workflows/image-scan.yml` |
+| Renovate itself | version + digest, tested centrally | shared repo-automation runner |
+| Trivy engine | exact version + checksum | shared security-scan action |
+| Buildx / BuildKit | exact version / version + digest | `.github/workflows/*.yml` |
 
-The deploy side pins the *published* image by digest in the yuzuyu repo, not
-here; `docker-compose.yml` in this repo is local/dev and builds from source.
+The yuzuyu deployment follows our own published application tag without a second
+age delay. Third-party base images and build tools are pinned and aged before
+publication. `docker-compose.yml` here is local/dev and builds from source.
+OS packages installed from authenticated distribution repositories remain fresh
+at rebuild time; the base digest does not freeze subsequent apt operations.
 
 ## Editing dependencies by hand
 
 Edit the `.in` file (never the compiled `.txt`), then recompile:
 
 ```sh
-docker run --rm -v "$PWD":/w -w /w python:3.14-slim sh -c '
-  pip install -q uv &&
-  uv pip compile --universal --generate-hashes --python-version=3.14 --output-file=requirements.txt requirements.in &&
-  uv pip compile --universal --generate-hashes --python-version=3.14 --constraint=requirements.txt --output-file=requirements-dev.txt requirements-dev.in'
+.venv/bin/uv pip compile --universal --generate-hashes --python-version=3.14 --output-file=requirements.txt requirements.in
+.venv/bin/uv pip compile --universal --generate-hashes --python-version=3.14 --constraint=requirements.txt --output-file=requirements-dev.txt requirements-dev.in
 ```
 
-Keep the equals-form flags. Renovate's pip-compile manager re-runs the
+`uv` is a hashed development dependency. `uv.toml` excludes releases younger
+than three days during resolution, including transitives. Keep the equals-form flags. Renovate's pip-compile manager re-runs the
 command it finds in each lockfile's header and rejects space-separated
 option arguments, so `--python-version 3.14` breaks Python updates entirely.
 
@@ -48,6 +51,12 @@ resolve to the same versions (both files install into one venv in CI).
 GitHub App; repo behavior lives in `.github/renovate.json5`.
 The cron requests a run at 27 minutes past each hour UTC. GitHub can
 delay or skip scheduled runs, so these are not delivery guarantees.
+
+The Docker tag names the full Python patch and Debian variant; the digest pins
+its actual bytes. Even a full version tag can be rebuilt. The shared runner
+retains observed digests for three days, allowing an older mature candidate to
+land even when the tag has moved again. Missing observation history starts a new
+window. The new behavior begins after the shared runner release is adopted.
 
 The shared Renovate runner caps Docker Hub lookups at ten pages. This avoids
 anonymous pagination failures that discard release timestamps and leave image

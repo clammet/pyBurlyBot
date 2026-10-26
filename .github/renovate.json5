@@ -23,6 +23,14 @@
   },
   "packageRules": [
     {
+      "description": "Update Python patch versions in the base image and CI together",
+      "matchPackageNames": [
+        "python",
+        "actions/python-versions"
+      ],
+      "groupName": "Python runtime"
+    },
+    {
       "extends": [
         "github>yuzuyuzuyu/repo-automation:non-major#v1.0.16"
       ]
@@ -44,14 +52,12 @@
     },
     {
       "description": "A Python minor is a runtime upgrade (bump ruff target-version, CI python-version alongside): human decision",
-      "matchDatasources": [
-        "docker"
-      ],
       "matchDepNames": [
         "python"
       ],
       "matchUpdateTypes": [
-        "minor"
+        "minor",
+        "major"
       ],
       "automerge": false
     },
