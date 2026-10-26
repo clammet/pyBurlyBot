@@ -27,4 +27,4 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-    - uses: yuzuyuzuyu/repo-automation/actions/readiness@5586e5ba4cf9c824b8ec9b264f8b67cc29403b30 # v1.0.17
+    - uses: yuzuyuzuyu/repo-automation/actions/readiness@e55dd1eb7ed66850d06dc49541e7b881a353317c # v1.0.18
