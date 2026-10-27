@@ -20,6 +20,14 @@ jobs:
     with:
       app-client-id: ${{ vars.RENOVATE_APP_CLIENT_ID }}
       native-automerge: true
+      renovate-config: >-
+        {
+          "allowedCommands": [
+            "^python3 -m venv \\.venv$",
+            "^\\.venv/bin/python -m pip install --require-hashes -r requirements-dev\\.txt$",
+            "^\\.venv/bin/python python_runtime\\.py --write$"
+          ]
+        }
     secrets:
       RENOVATE_APP_PRIVATE_KEY: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
       RENOVATE_GITHUB_LOOKUP_TOKEN: ${{ secrets.RENOVATE_GITHUB_LOOKUP_TOKEN }}

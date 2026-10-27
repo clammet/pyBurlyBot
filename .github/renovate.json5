@@ -23,7 +23,7 @@
   },
   "packageRules": [
     {
-      "description": "Update Python patch versions in the base image and CI together",
+      "description": "The Docker Python image drives CI, Ruff, and lockfile compilation settings",
       "matchPackageNames": [
         "python",
         "actions/python-versions"
@@ -51,12 +51,49 @@
       ]
     },
     {
-      "description": "A Python minor is a runtime upgrade (bump ruff target-version, CI python-version alongside): human decision",
+      "description": "CI Python follows the Docker image through the runtime synchronization task",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepNames": [
+        "python"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Synchronize Python settings and regenerate lockfiles during Docker runtime updates",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "postUpgradeTasks": {
+        "commands": [
+          "python3 -m venv .venv",
+          ".venv/bin/python -m pip install --require-hashes -r requirements-dev.txt",
+          ".venv/bin/python python_runtime.py --write"
+        ],
+        "installTools": {
+          "python": true
+        },
+        "fileFilters": [
+          ".github/workflows/ci.yml",
+          "pyproject.toml",
+          "requirements*.in",
+          "requirements*.txt",
+          "docs/dependencies.md",
+          "**/*.py"
+        ],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "description": "Python major upgrades still require a human decision",
       "matchDepNames": [
         "python"
       ],
       "matchUpdateTypes": [
-        "minor",
         "major"
       ],
       "automerge": false

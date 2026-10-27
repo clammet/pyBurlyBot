@@ -63,6 +63,26 @@ anonymous pagination failures that discard release timestamps and leave image
 updates pending indefinitely. The cap covers the 1,000 most recently updated tags
 per image; revisit it if we start tracking older tags.
 
+### Python runtime upgrades
+
+The digest-pinned Python image in `Dockerfile` drives runtime upgrades. Renovate
+does not update the CI Python version independently. When an image update is
+eligible, its post-upgrade task runs `python_runtime.py --write` to synchronize
+CI's exact Python version, Ruff's target (one Python minor behind), and the
+documented lockfile compilation commands. A Python minor upgrade regenerates
+both hashed lockfiles for the new minor, then formats Python files for the new
+Ruff target. Package pins in the `.in` files remain unchanged.
+
+The runner permits only the three exact commands needed to create a project
+venv, install hashed development dependencies, and run the synchronizer.
+Docker digest observations still need three days of history. CI checks that
+all Python settings and lockfile compilation targets agree with `Dockerfile`,
+so a partial update cannot pass the required `test` check.
+
+For a manual runtime change, edit `Dockerfile`, then run
+`.venv/bin/python python_runtime.py --write`. To check without editing, run
+`.venv/bin/python python_runtime.py --check`.
+
 The `automation-updates` preset exempts shared repository automation releases
 from the usual release-age delay. Required CI and action digest review still
 apply; other dependencies retain their age requirements.
@@ -83,9 +103,8 @@ apply; other dependencies retain their age requirements.
 - Renovate sets GitHub auto-merge on minor/patch/pin/digest/lockfile PRs; they
   merge only after the required checks pass. A red check leaves the PR open
   for a human — that is the designed failure path, not a fault.
-- Majors never automerge. Neither do Python minors of the base image: a Python
-  minor is a runtime upgrade, bump ruff `target-version` (pyproject.toml) and
-  CI `python-version` in the same PR.
+- Majors never automerge. Python minor and patch upgrades automerge after
+  synchronization, release-age requirements, and required CI checks pass.
 - Repo settings: auto-merge allowed, head branches deleted on merge.
 - The ruleset requires PRs on `main` with 0 approvals (solo repo; an approval
   requirement would deadlock automerge), blocks force-pushes and deletion, and
