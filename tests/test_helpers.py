@@ -42,6 +42,33 @@ class HelpersTest(TestCase):
             simplefilter("error", DeprecationWarning)
             self.assertEqual(parseDateTime("tomorrow", 1_700_000_000), 1_700_031_600)
 
+    def test_partial_dates_parse_without_deprecation_warnings(self) -> None:
+        reference = _epoch(2026, 1, 15, 18, 0)
+        cases = (
+            ("on 3/31", _epoch(2026, 3, 31, 0, 0)),
+            ("on 20th", _epoch(2026, 1, 20, 0, 0)),
+            ("on 31st", _epoch(2026, 1, 31, 0, 0)),
+            ("on 22nd", _epoch(2026, 1, 22, 0, 0)),
+            ("on 23rd", _epoch(2026, 1, 23, 0, 0)),
+            ("on 2027/3/31", _epoch(2027, 3, 31, 0, 0)),
+        )
+        with catch_warnings():
+            simplefilter("error", DeprecationWarning)
+            for datespec, expected in cases:
+                with self.subTest(datespec=datespec):
+                    self.assertEqual(parseDateTime(datespec, reference), expected)
+
+    def test_partial_dates_validate_against_the_reference_year(self) -> None:
+        self.assertEqual(
+            parseDateTime("on 2/29", _epoch(2028, 1, 15, 18, 0)),
+            _epoch(2028, 2, 29, 0, 0),
+        )
+        reference = _epoch(2026, 1, 15, 18, 0)
+        for datespec in ("on 2/29", "on 4/31", "on 32nd"):
+            with self.subTest(datespec=datespec):
+                self.assertIsNone(parseDateTime(datespec, reference))
+        self.assertIsNone(parseDateTime("on 2/29", _epoch(2028, 3, 1, 18, 0)))
+
     def test_date_parsing_survives_month_ends(self) -> None:
         # every case here used to raise ValueError (or land in month 13)
         self.assertEqual(

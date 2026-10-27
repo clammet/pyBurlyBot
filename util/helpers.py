@@ -384,18 +384,24 @@ def parseDateTime(
         for index, dformat in enumerate(
             ("%Y/%m/%d", "%m/%d", "%dth", "%dst", "%dnd", "%drd", "%H:%M", "%I%p")
         ):
+            date_string = s
+            date_format = dformat
+            if 1 <= index <= 5:
+                # Partial dates need a year during parsing, before rollover.
+                date_string = f"{dd.year}/{s}"
+                date_format = f"%Y/{dformat}"
             try:
-                pd = datetime.strptime(s, dformat)  # noqa: DTZ007 - partial date, combined below
+                pd = datetime.strptime(date_string, date_format)  # noqa: DTZ007 - partial date, combined below
             except ValueError:
                 continue
             # add year
             if index != 0:
                 pd = pd.replace(year=dd.year)
-                if index == 1:
-                    if (dd.month == pd.month) and (dd.day >= pd.day):
+                if index == 1 and (dd.month, dd.day) >= (pd.month, pd.day):
+                    try:
                         pd = pd.replace(year=dd.year + 1)
-                    elif dd.month > pd.month:
-                        pd = pd.replace(year=dd.year + 1)
+                    except ValueError:
+                        return None  # Leap day does not exist in the next year.
             # add month
             if index >= 2:
                 # add month until find month where provided day fits. (Needed for things like "on 30th" if Feb)
