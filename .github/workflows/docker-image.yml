@@ -28,7 +28,7 @@ jobs:
           persist-credentials: false
       - name: Verify the current revision and its CI
         id: gate
-        uses: yuzuyuzuyu/repo-automation/actions/publication@0fb739ad104fc5c5573b40680a20703fc7563539 # v1.0.23
+        uses: yuzuyuzuyu/repo-automation/actions/publication@2a687fcaa88a23873b98afcffe38688b04b35a46 # v1.0.24
 
   build:
     if: needs.publication-ready.outputs.ready == 'true'
