@@ -7,4 +7,4 @@
 # requirements-dev.txt and rejects space-separated option arguments.
 mypy==2.4.0
 ruff==0.17.3
-uv==0.13.5
+uv==0.13.6
