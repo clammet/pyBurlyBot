@@ -334,7 +334,7 @@ def run_harness(args: argparse.Namespace) -> int:
         runtime_dir = Path(temp_dir)
         try:
             runtime_config_path = write_runtime_config(config, runtime_dir, target)
-        except (HarnessError, OSError, TypeError, ValueError):
+        except HarnessError, OSError, TypeError, ValueError:
             server.server_close()
             raise
         if imported_credentials:

@@ -21,7 +21,7 @@ from util.types import BotLike
 def _load_zone(zone_id: str) -> ZoneInfo | None:
     try:
         return ZoneInfo(zone_id)
-    except (ZoneInfoNotFoundError, ValueError, OSError):
+    except ZoneInfoNotFoundError, ValueError, OSError:
         return None
 
 

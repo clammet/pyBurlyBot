@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           # python_runtime.py synchronizes this with the pinned Docker image.
-          python-version: "3.14.7"
+          python-version: "3.15.2"
 
       - name: Verify Python runtime settings
         run: python python_runtime.py --check

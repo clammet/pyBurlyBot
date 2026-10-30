@@ -362,7 +362,7 @@ def _literal_keyword(call: ast.Call, name: str, default: Any = None) -> Any:
         if keyword.arg == name:
             try:
                 return ast.literal_eval(keyword.value)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 return default
     return default
 
@@ -378,7 +378,7 @@ def discover_static_commands(
             tree = ast.parse(
                 module_path.read_text(encoding="utf-8"), filename=str(module_path)
             )
-        except (OSError, SyntaxError):
+        except OSError, SyntaxError:
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):

@@ -1089,7 +1089,7 @@ class BurlyBot(IRCClient, TimeoutMixin):
             if command in numeric_to_symbolic:
                 command = numeric_to_symbolic[command]
             self.handleCommand(command, prefix, params)
-        except (IRCBadMessage, ValueError):
+        except IRCBadMessage, ValueError:
             self.badMessage(line, *exc_info())
         finally:
             self._message_tags = {}
