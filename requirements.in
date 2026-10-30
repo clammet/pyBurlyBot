@@ -2,8 +2,8 @@
 # recompiles requirements.txt (the hashed lockfile the container and the
 # updaterelaunch module actually install from). To recompile by hand:
 #
-#   docker run --rm -v "$PWD":/w -w /w ghcr.io/astral-sh/uv:python3.14-bookworm-slim \
-#     uv pip compile --universal --generate-hashes --python-version=3.14 --output-file=requirements.txt requirements.in
+#   docker run --rm -v "$PWD":/w -w /w ghcr.io/astral-sh/uv:python3.15-bookworm-slim \
+#     uv pip compile --universal --generate-hashes --python-version=3.15 --output-file=requirements.txt requirements.in
 #
 # The equals-form flags matter: Renovate parses the command header in
 # requirements.txt and rejects space-separated option arguments.

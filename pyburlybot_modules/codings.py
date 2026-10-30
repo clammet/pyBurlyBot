@@ -82,13 +82,13 @@ def fencode(event: Event, bot: BotLike) -> None:
     try:
         try:
             bot.say(repr(content.encode(method)))
-        except (LookupError, UnicodeError):
+        except LookupError, UnicodeError:
             bot.say(repr(codecs_encode(content.encode("utf-8"), cast(Any, method))))
     except LookupError:
         bot.say(
             "Unknown encoding. Available encodings: https://docs.python.org/2/library/codecs.html#standard-encodings"
         )
-    except (UnicodeEncodeError, UnicodeDecodeError):
+    except UnicodeEncodeError, UnicodeDecodeError:
         bot.say("Can't encode.")
 
 
@@ -113,7 +113,7 @@ def fdecode(event: Event, bot: BotLike) -> None:
         bot.say(
             "Unknown encoding. Available encodings: https://docs.python.org/2/library/codecs.html#standard-encodings"
         )
-    except (UnicodeEncodeError, UnicodeDecodeError):
+    except UnicodeEncodeError, UnicodeDecodeError:
         bot.say("Can't decode.")
 
 

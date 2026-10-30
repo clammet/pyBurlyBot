@@ -27,14 +27,14 @@ at rebuild time; the base digest does not freeze subsequent apt operations.
 Edit the `.in` file (never the compiled `.txt`), then recompile:
 
 ```sh
-.venv/bin/uv pip compile --universal --generate-hashes --python-version=3.14 --output-file=requirements.txt requirements.in
-.venv/bin/uv pip compile --universal --generate-hashes --python-version=3.14 --constraint=requirements.txt --output-file=requirements-dev.txt requirements-dev.in
+.venv/bin/uv pip compile --universal --generate-hashes --python-version=3.15 --output-file=requirements.txt requirements.in
+.venv/bin/uv pip compile --universal --generate-hashes --python-version=3.15 --constraint=requirements.txt --output-file=requirements-dev.txt requirements-dev.in
 ```
 
 `uv` is a hashed development dependency. `uv.toml` excludes releases younger
 than three days during resolution, including transitives. Keep the equals-form flags. Renovate's pip-compile manager re-runs the
 command it finds in each lockfile's header and rejects space-separated
-option arguments, so `--python-version 3.14` breaks Python updates entirely.
+option arguments, so `--python-version 3.15` breaks Python updates entirely.
 
 `--universal` makes one lockfile serve both the macOS dev venv and the Linux
 container; `--generate-hashes` puts pip into hash-verifying mode everywhere the

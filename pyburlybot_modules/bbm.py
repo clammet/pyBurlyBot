@@ -174,7 +174,7 @@ def unregister_tool(bot: BotLike, name: str) -> None:
 def _sleep(ctx: ToolContext, args: dict[str, Any]) -> str:
     try:
         minutes = float(args["minutes"])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         minutes = float(ctx.bot.getOption("sleep_time", module="bbm")) / 60.0
     seconds = min(max(minutes * 60.0, 30.0), 60.0 * 60.0 * 24.0)
     ctx.mute(seconds)

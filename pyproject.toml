@@ -2,7 +2,7 @@
 # The one deliberate version pin in this project: one minor version behind the
 # newest Python, so ruff format/lint never rewrite code into newest-only syntax
 # (e.g. PEP 758 unparenthesized except tuples on 3.14). Bump alongside runtime.
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["ANN", "ASYNC", "B", "BLE", "DTZ", "E4", "E7", "E9", "F", "PLE", "PLW", "RUF", "S"]

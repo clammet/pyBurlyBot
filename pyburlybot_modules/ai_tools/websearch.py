@@ -15,7 +15,7 @@ def _web_search(ctx: ToolContext, args: dict[str, Any]) -> str:
         return "Error: no query given."
     try:
         count = int(args.get("count") or 3)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         count = 3
     count = min(max(count, 1), _MAX_RESULTS)
     spelling, results = ctx.bot.getModule("googleapi").google(ctx.bot, query, count)
