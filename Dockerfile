@@ -2,7 +2,7 @@
 # Pinned by digest; Renovate PRs tag/digest bumps and CI proves them. Rebuilds
 # run on merges and maintenance dispatches; the host image updater installs
 # newly published images automatically.
-FROM python:3.15.2-slim-trixie@sha256:2145e0fc7fbd73eaae44c3c4759cf303e2c4e531353b207c6493226a02668ca5
+FROM python:3.15.2-slim-trixie@sha256:c4158543ecb725b99e57d129dfd43d761d4c43e4577b5e23326aabb223cf7f4e
 
 # git: the bot self-updates its own checkout at runtime (updaterelaunch module).
 # tini: PID 1 reaper so no module that forks children can leave zombies.
