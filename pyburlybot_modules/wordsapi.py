@@ -35,8 +35,8 @@ class DictionaryResult:
     @property
     def attribution(self) -> str:
         source = self.source_url or "https://dictionaryapi.dev/"
-        if self.license_name:
-            return "%s [%s]" % (source, self.license_name)
+        # if self.license_name:
+        #     return "%s [%s]" % (source, self.license_name)
         return source
 
 
