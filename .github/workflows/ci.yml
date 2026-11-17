@@ -39,8 +39,6 @@ jobs:
 
       - run: mypy .
 
-      - run: python -m unittest
-
   docker-build:
     runs-on: ubuntu-latest
     steps:
@@ -57,7 +55,16 @@ jobs:
           # renovate: datasource=docker depName=moby/buildkit
           driver-opts: image=moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
 
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      - name: Build runtime image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          load: true
           push: false
+          tags: pyburlybot:ci
+
+      - name: Run unit tests in runtime image
+        # Use the image's user, checkout and venv; bypass startup self-update.
+        run: >-
+          docker run --rm --init --network=none --entrypoint python
+          pyburlybot:ci -m unittest

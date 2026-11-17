@@ -6,9 +6,11 @@ FROM python:3.15.2-slim-trixie@sha256:c4158543ecb725b99e57d129dfd43d761d4c43e457
 
 # git: the bot self-updates its own checkout at runtime (updaterelaunch module).
 # tini: PID 1 reaper so no module that forks children can leave zombies.
+# tzdata-legacy: supported timezone identifiers such as EST.
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends git tini \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        git tini tzdata tzdata-legacy \
     && rm -rf /var/lib/apt/lists/*
 
 # Dependencies live in a venv the runtime user can write to, so self-update

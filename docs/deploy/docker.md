@@ -46,8 +46,10 @@ be deployable.** A broken merge to main will be picked up automatically.
 
 ## Image contents
 
-- Base `python:3.14-slim`, plus `git` and `tini` (PID 1; the log indexer
-  forks `multiprocessing` children that need reaping).
+- Base: the digest-pinned Python slim image on Debian Trixie in `Dockerfile`,
+  plus `git` and `tini` (PID 1; the log indexer forks `multiprocessing` children
+  that need reaping). `tzdata` and `tzdata-legacy` provide maintained timezone
+  rules and legacy identifiers such as `EST`.
 - Runs as non-root user `burlybot` (UID/GID 10002 — a dedicated identity far
   above the range where hosts create interactive users, so the owner of
   bind-mounted state can never coincide with a human login), which owns
@@ -55,6 +57,13 @@ be deployable.** A broken merge to main will be picked up automatically.
 - `WORKDIR /app` is the checkout; all bot paths are CWD-relative.
 - Built and pushed by `.github/workflows/docker-image.yml` on every push to
   `main`: `ghcr.io/clammet/pyburlybot:latest` (+ a per-commit SHA tag).
+
+CI builds this runtime image and runs the unit suite inside it as `burlybot`,
+using the baked-in checkout and runtime dependencies. It overrides the normal
+entrypoint to prevent startup self-update and disables external networking.
+Tests do not install extra packages or mount the runner's checkout. Ruff and
+mypy run separately on the Actions runner. These project-specific build/test
+steps stay here; shared repo-automation gates publication on successful CI.
 
 ## Persistent state: `/app/state`
 

@@ -97,9 +97,11 @@ apply; other dependencies retain their age requirements.
 
 ## Merge policy
 
-- CI (`.github/workflows/ci.yml`: `test` = ruff/mypy/unittest against the
-  lockfiles, `docker-build` = full image build) runs on every PR. Both jobs are
-  required status checks in the `main` ruleset.
+- CI (`.github/workflows/ci.yml`: `test` = Ruff/mypy against the lockfiles,
+  `docker-build` = full runtime image build followed by unit tests inside that
+  image) runs on every PR. Unit tests use the image's non-root user, Python venv,
+  runtime dependencies and OS timezone data, with external networking disabled.
+  Both jobs are required status checks in the `main` ruleset.
 - Renovate sets GitHub auto-merge on minor/patch/pin/digest/lockfile PRs; they
   merge only after the required checks pass. A red check leaves the PR open
   for a human — that is the designed failure path, not a fault.
