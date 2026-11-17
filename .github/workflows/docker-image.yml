@@ -35,7 +35,7 @@ jobs:
     needs: publication-ready
     runs-on: ubuntu-latest
     outputs:
-      image-ref: ghcr.io/${{ steps.repo.outputs.name }}@${{ steps.build.outputs.digest }}
+      image-ref: ${{ steps.publish.outputs.image-ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,12 +44,6 @@ jobs:
           # never bake CI credentials into .git/config (repo is public; the
           # in-container `git fetch` is unauthenticated)
           persist-credentials: false
-
-      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - id: repo
         name: Lowercase image name
@@ -62,14 +56,38 @@ jobs:
           # renovate: datasource=docker depName=moby/buildkit
           driver-opts: image=moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
 
-      - id: build
+      - name: Build runtime image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           pull: true
           no-cache: ${{ github.event_name == 'workflow_dispatch' }}
           # use the checked-out workspace (includes .git), not the git context
           context: .
-          push: true
+          load: true
+          push: false
           tags: |
             ghcr.io/${{ steps.repo.outputs.name }}:latest
             ghcr.io/${{ steps.repo.outputs.name }}:${{ github.sha }}
+
+      - name: Run unit tests in runtime image
+        env:
+          IMAGE: ghcr.io/${{ steps.repo.outputs.name }}:${{ github.sha }}
+        run: >-
+          docker run --rm --init --network=none --entrypoint python
+          "$IMAGE" -m unittest
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push tested image without rebuilding
+        id: publish
+        env:
+          IMAGE_REPOSITORY: ghcr.io/${{ steps.repo.outputs.name }}
+        run: |
+          docker push "$IMAGE_REPOSITORY:$GITHUB_SHA"
+          docker push "$IMAGE_REPOSITORY:latest"
+          image_ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:$GITHUB_SHA")
+          echo "image-ref=$image_ref" >> "$GITHUB_OUTPUT"

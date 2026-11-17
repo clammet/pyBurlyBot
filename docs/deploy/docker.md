@@ -65,6 +65,12 @@ Tests do not install extra packages or mount the runner's checkout. Ruff and
 mypy run separately on the Actions runner. These project-specific build/test
 steps stay here; shared repo-automation gates publication on successful CI.
 
+After that gate passes, the publication workflow builds its final runtime image,
+runs the same unit suite inside it, then pushes that tested image under both
+the commit and `latest` tags. There is no rebuild between testing and pushing.
+Manual rebuilds follow the same test-before-push sequence. PR CI builds remain
+separate from the publication build.
+
 ## Persistent state: `/app/state`
 
 Everything that must survive a container recreate lives in one directory,

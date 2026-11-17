@@ -102,6 +102,10 @@ apply; other dependencies retain their age requirements.
   image) runs on every PR. Unit tests use the image's non-root user, Python venv,
   runtime dependencies and OS timezone data, with external networking disabled.
   Both jobs are required status checks in the `main` ruleset.
+- Publication waits for CI, builds its final runtime image, runs the unit suite
+  inside it, then pushes that same image without rebuilding. This also applies
+  to manual rebuilds; a failed test prevents both publication tags from being
+  pushed.
 - Renovate sets GitHub auto-merge on minor/patch/pin/digest/lockfile PRs; they
   merge only after the required checks pass. A red check leaves the PR open
   for a human — that is the designed failure path, not a fault.
