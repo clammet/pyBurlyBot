@@ -110,6 +110,8 @@ def rand_butt(event: Event, bot: BotLike) -> None:
         return
     if random.randint(1, bot.getOption("BUTT_RATE", module="butt")) != 1:
         return
+    if event.nick and event.nick == "Clam":
+        return
     result = buttify(msg)
     # No butt occurred
     if result == msg:
